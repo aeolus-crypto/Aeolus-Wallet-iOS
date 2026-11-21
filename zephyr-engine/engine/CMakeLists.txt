@@ -4,7 +4,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(zephyr_ios C CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+# the same C++ standard as zephyr's libraries (C++17): no ODR differences between them and us
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(ZEPHYR_CPP "" CACHE PATH "zephyr-cpp source directory")
@@ -31,8 +32,12 @@ add_library(zephyr_engine STATIC
   ${ZEPHYR_CPP}/src/wallet/monero_wallet_full.cpp
 )
 target_compile_definitions(zephyr_engine PRIVATE ZIOS_SOURCES="${ZIOS_SOURCES}")
-# zephyr-cpp's monero_wallet_model.h uses std::map without including <map> (as in myzephyr-java)
-target_compile_options(zephyr_engine PRIVATE -include map -fvisibility=hidden -fvisibility-inlines-hidden)
+# zephyr-cpp's monero_wallet_model.h uses std::map without including <map> (as in myzephyr-java).
+# Default symbol visibility, like zephyr's libraries: Apple's libc++ compares type_info by address
+# on arm64, so templates instantiated here with hidden visibility (epee's portable storage) got
+# their own typeid(section), and every nested kv section failed to open on iOS (keys loaded as
+# zeros: "file ... does not correspond to ... .keys"). Linux compares type names, so it passed.
+target_compile_options(zephyr_engine PRIVATE -include map)
 target_include_directories(zephyr_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${ZEPHYR_CPP}/src
