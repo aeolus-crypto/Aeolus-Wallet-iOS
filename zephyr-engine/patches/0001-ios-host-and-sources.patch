@@ -1,0 +1,170 @@
+From 08d655e16047aa3430d31b302db96cfa723f2fc1 Mon Sep 17 00:00:00 2001
+From: Aeolus iOS build <noreply@aeolus.invalid>
+Date: Sat, 21 Nov 2026 11:12:26 -0700
+Subject: [PATCH] iOS: depends host, boost/OpenSSL options, no IOKit on iOS
+
+Adds an iOS host to contrib/depends (built on macOS with Xcode), backports
+boost numeric_conversion's Clang 16+ enum fix to boost 1.64, builds OpenSSL
+without async on iOS, drops the missing CmakeLists_IOS.txt include and keeps
+macOS-only IOKit code out of iOS builds.
+
+---
+ CMakeLists.txt                      |  3 ---
+ contrib/depends/hosts/ios.mk        | 41 +++++++++++++++++++++++++++++
+ contrib/depends/packages/boost.mk   |  7 +++++
+ contrib/depends/packages/openssl.mk |  1 +
+ src/cryptonote_basic/miner.cpp      | 11 +++++---
+ 5 files changed, 56 insertions(+), 7 deletions(-)
+ create mode 100644 contrib/depends/hosts/ios.mk
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4f1e197..38f6ff9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -45,9 +45,6 @@ if (POLICY CMP0148)
+ endif()
+ include(FindPythonInterp)
+ 
+-if (IOS)
+-    INCLUDE(CmakeLists_IOS.txt)
+-endif()
+ 
+ project(monero)
+ 
+diff --git a/contrib/depends/hosts/ios.mk b/contrib/depends/hosts/ios.mk
+new file mode 100644
+index 0000000..85464ef
+--- /dev/null
++++ b/contrib/depends/hosts/ios.mk
+@@ -0,0 +1,41 @@
++# iOS host (aeolus zephyr-ios-build). Built on a macOS machine with Xcode only.
++# IOS_PLATFORM selects the SDK: iphoneos (devices, the default) or iphonesimulator.
++IOS_PLATFORM ?= iphoneos
++IOS_MIN_VERSION ?= 15.0
++
++ifeq ($(IOS_PLATFORM),iphonesimulator)
++ios_target_triple=arm64-apple-ios$(IOS_MIN_VERSION)-simulator
++else
++ios_target_triple=arm64-apple-ios$(IOS_MIN_VERSION)
++endif
++ios_sdk:=$(shell xcrun --sdk $(IOS_PLATFORM) --show-sdk-path)
++
++ios_CC=$(shell xcrun -f clang) -target $(ios_target_triple) -isysroot $(ios_sdk)
++ios_CXX=$(shell xcrun -f clang++) -target $(ios_target_triple) -isysroot $(ios_sdk) -stdlib=libc++
++ios_AR:=$(shell xcrun -f ar)
++ios_RANLIB:=$(shell xcrun -f ranlib)
++ios_STRIP:=$(shell xcrun -f strip)
++ios_LIBTOOL:=$(shell xcrun -f libtool)
++ios_OTOOL:=$(shell xcrun -f otool)
++ios_NM:=$(shell xcrun -f nm)
++ios_INSTALL_NAME_TOOL:=$(shell xcrun -f install_name_tool)
++
++ios_CFLAGS=-pipe -O2
++ios_CXXFLAGS=-pipe -O2
++ios_ARFLAGS=cr
++
++ios_release_CFLAGS=-O2
++ios_release_CXXFLAGS=$(ios_release_CFLAGS)
++ios_debug_CFLAGS=-O1
++ios_debug_CXXFLAGS=$(ios_debug_CFLAGS)
++
++# autotools packages see a Darwin host: their config.sub files predate "ios", and the compiler
++# above already targets iOS
++aarch64_ios_host=aarch64-apple-darwin
++
++# the wallet core needs no terminal, hardware wallet or protobuf packages
++ios_packages=
++ios_native_packages=
++ios_native_toolchain=
++
++ios_cmake_system=iOS
+diff --git a/contrib/depends/packages/boost.mk b/contrib/depends/packages/boost.mk
+index 1b36d9d..aecb134 100644
+--- a/contrib/depends/packages/boost.mk
++++ b/contrib/depends/packages/boost.mk
+@@ -13,6 +13,7 @@ $(package)_config_opts+=threading=multi link=static -sNO_BZIP2=1 -sNO_ZLIB=1
+ $(package)_config_opts_linux=threadapi=pthread runtime-link=shared
+ $(package)_config_opts_android=threadapi=pthread runtime-link=static target-os=android
+ $(package)_config_opts_darwin=--toolset=darwin runtime-link=shared
++$(package)_config_opts_ios=--toolset=darwin runtime-link=shared
+ $(package)_config_opts_mingw32=binary-format=pe target-os=windows threadapi=win32 runtime-link=static
+ $(package)_config_opts_x86_64_mingw32=address-model=64
+ $(package)_config_opts_i686_mingw32=address-model=32
+@@ -21,6 +22,8 @@ $(package)_toolset_$(host_os)=gcc
+ $(package)_archiver_$(host_os)=$($(package)_ar)
+ $(package)_toolset_darwin=darwin
+ $(package)_archiver_darwin=$($(package)_libtool)
++$(package)_toolset_ios=darwin
++$(package)_archiver_ios=$($(package)_libtool)
+ $(package)_config_libraries_$(host_os)="chrono,filesystem,program_options,system,thread,test,date_time,regex,serialization"
+ $(package)_config_libraries_mingw32="chrono,filesystem,program_options,system,thread,test,date_time,regex,serialization,locale"
+ $(package)_cxxflags=-std=c++11
+@@ -32,6 +35,10 @@ define $(package)_preprocess_cmds
+   patch -p1 < $($(package)_patch_dir)/fix_aroptions.patch &&\
+   patch -p1 < $($(package)_patch_dir)/fix_arm_arch.patch &&\
+   patch -p1 < $($(package)_patch_dir)/b2-engine-implicit-declarations.patch &&\
++  for f in int_float_mixture sign_mixture udt_builtin_mixture; do \
++    sed -i.old -e 's|boost/mpl/integral_c.hpp|boost/type_traits/integral_constant.hpp|' \
++      -e 's|mpl::integral_c<|boost::integral_constant<|' boost/numeric/conversion/detail/$$$$f.hpp || exit 1; \
++  done &&\
+   echo "using $(boost_toolset_$(host_os)) : : $($(package)_cxx) : <cxxflags>\"$($(package)_cxxflags) $($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$(boost_archiver_$(host_os))\" <arflags>\"$($(package)_arflags)\" <striper>\"$(host_STRIP)\"  <ranlib>\"$(host_RANLIB)\" <rc>\"$(host_WINDRES)\" : ;" > user-config.jam
+ endef
+ 
+diff --git a/contrib/depends/packages/openssl.mk b/contrib/depends/packages/openssl.mk
+index d040aa0..d8aa2fc 100644
+--- a/contrib/depends/packages/openssl.mk
++++ b/contrib/depends/packages/openssl.mk
+@@ -43,6 +43,7 @@ $(package)_config_opts_mipsel_linux=linux-generic32
+ $(package)_config_opts_mips_linux=linux-generic32
+ $(package)_config_opts_powerpc_linux=linux-generic32
+ $(package)_config_opts_x86_64_darwin=darwin64-x86_64-cc
++$(package)_config_opts_aarch64_ios=darwin64-arm64-cc no-async
+ $(package)_config_opts_x86_64_mingw32=mingw64
+ $(package)_config_opts_i686_mingw32=mingw
+ $(package)_config_opts_x86_64_freebsd=BSD-x86_64
+diff --git a/src/cryptonote_basic/miner.cpp b/src/cryptonote_basic/miner.cpp
+index 3161dc3..e2c6454 100644
+--- a/src/cryptonote_basic/miner.cpp
++++ b/src/cryptonote_basic/miner.cpp
+@@ -46,7 +46,10 @@
+ #include "boost/logic/tribool.hpp"
+ #include <boost/filesystem.hpp>
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__)
++  #include <TargetConditionals.h>
++#endif
++#if defined(__APPLE__) && !TARGET_OS_IPHONE
+   #include <sys/times.h>
+   #include <IOKit/IOKitLib.h>
+   #include <IOKit/ps/IOPSKeys.h>
+@@ -884,7 +887,7 @@ namespace cryptonote
+ 
+       return true;
+ 
+-    #elif defined(__APPLE__)
++    #elif defined(__APPLE__) && !TARGET_OS_IPHONE
+ 
+       mach_msg_type_number_t count;
+       kern_return_t status;
+@@ -950,7 +953,7 @@ namespace cryptonote
+         return true;
+       }
+ 
+-    #elif (defined(__linux__) && defined(_SC_CLK_TCK)) || defined(__APPLE__) || defined(__FreeBSD__)
++    #elif (defined(__linux__) && defined(_SC_CLK_TCK)) || (defined(__APPLE__) && !TARGET_OS_IPHONE) || defined(__FreeBSD__)
+ 
+       struct tms tms;
+       if ( times(&tms) != (clock_t)-1 )
+@@ -979,7 +982,7 @@ namespace cryptonote
+         return boost::logic::tribool(power_status.ACLineStatus != 1);
+     	}
+ 
+-    #elif defined(__APPLE__) 
++    #elif defined(__APPLE__) && !TARGET_OS_IPHONE 
+       
+       #if TARGET_OS_MAC && (!defined(MAC_OS_X_VERSION_MIN_REQUIRED) || MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
+         return boost::logic::tribool(IOPSGetTimeRemainingEstimate() != kIOPSTimeRemainingUnlimited);
+-- 
+2.43.0
+

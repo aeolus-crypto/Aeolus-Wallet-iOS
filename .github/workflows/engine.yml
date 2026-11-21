@@ -1,0 +1,105 @@
+name: iOS engine
+
+on:
+  push:
+    branches: [main]
+    paths: ['zephyr-engine/**', '.github/workflows/engine.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: zephyr-engine
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: macos-15
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [iphoneos, iphonesimulator]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          cmake --version | head -1
+          clang --version | head -1
+
+      - name: Pinned sources
+        run: scripts/setup_tree.sh
+
+      - name: Restore dependency cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/built
+            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/sources
+          key: depends-${{ matrix.platform }}-${{ hashFiles('zephyr-engine/pins.env', 'zephyr-engine/patches/*.patch', 'zephyr-engine/scripts/build_depends.sh') }}
+
+      - name: Dependencies (boost, OpenSSL, libsodium, unbound, expat, zeromq)
+        run: scripts/build_depends.sh ${{ matrix.platform }}
+
+      - name: Zephyr wallet libraries
+        run: scripts/build_zephyr.sh ${{ matrix.platform }}
+
+      - name: Engine library and smoke test link
+        run: scripts/build_engine.sh ${{ matrix.platform }}
+
+      - name: Smoke test in the iOS Simulator
+        if: matrix.platform == 'iphonesimulator'
+        run: scripts/run_smoke_simulator.sh
+
+      - name: Checksums
+        run: shasum -a 256 work/out/${{ matrix.platform }}/libzephyr_ios.a | tee work/out/${{ matrix.platform }}/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-ios-${{ matrix.platform }}
+          path: zephyr-engine/work/out/${{ matrix.platform }}
+          retention-days: 30
+
+      - name: Collect logs
+        if: failure()
+        run: |
+          mkdir -p logs
+          find work -name config.log -o -name CMakeError.log -o -name CMakeOutput.log -o -name CMakeConfigureLog.yaml | while read -r f; do
+            mkdir -p "logs/$(dirname "$f")" && cp "$f" "logs/$f"; done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-${{ matrix.platform }}
+          path: zephyr-engine/logs
+          retention-days: 14
+
+  xcframework:
+    needs: build
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: zephyr-ios-*
+      - name: Create ZephyrIOS.xcframework
+        run: |
+          xcodebuild -create-xcframework \
+            -library zephyr-ios-iphoneos/libzephyr_ios.a -headers zephyr-ios-iphoneos/include \
+            -library zephyr-ios-iphonesimulator/libzephyr_ios.a -headers zephyr-ios-iphonesimulator/include \
+            -output ZephyrIOS.xcframework
+          ditto -c -k --keepParent ZephyrIOS.xcframework ZephyrIOS.xcframework.zip
+          shasum -a 256 ZephyrIOS.xcframework.zip | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZephyrIOS.xcframework
+          path: |
+            ZephyrIOS.xcframework.zip
+            SHA256SUMS
+          retention-days: 30
