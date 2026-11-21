@@ -29,7 +29,7 @@ for N in ssl crypto sodium unbound expat; do LIBS+=("$ZIOS_PREFIX/lib/lib$N.a");
 mkdir -p "$OUT/include"
 rm -f "$OUT/libzephyr_ios.a"
 xcrun libtool -static -no_warning_for_no_symbols -o "$OUT/libzephyr_ios.a" "${LIBS[@]}" 2> >(grep -v 'same member name' >&2)
-cp "$ROOT/engine/zephyr_ios.h" "$OUT/include/"
+cp "$ROOT/engine/zephyr_ios.h" "$ROOT/engine/module.modulemap" "$OUT/include/"
 ls -l "$OUT/libzephyr_ios.a"
 
 # link the smoke test: every symbol the wallet needs must resolve

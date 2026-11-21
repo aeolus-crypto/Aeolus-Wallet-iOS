@@ -1,0 +1,12 @@
+{
+  "name": "aeolus-native",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aeolus Wallet's native iOS layer: the Zephyr wallet engine, secure storage, PIN and the page bridge",
+  "license": "UNLICENSED",
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

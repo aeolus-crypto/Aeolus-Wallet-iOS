@@ -1,0 +1,15 @@
+{
+  "name": "aeolus-ios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aeolus Wallet for iOS (Capacitor shell around the shared web UI)",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
+    "aeolus-native": "file:plugins/aeolus-native"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.0"
+  }
+}

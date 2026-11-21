@@ -1,0 +1,10 @@
+{
+  "appId": "com.aeolus.wallet",
+  "appName": "Aeolus",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "webContentsDebuggingEnabled": false,
+    "loggingBehavior": "none"
+  }
+}

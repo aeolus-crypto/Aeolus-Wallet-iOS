@@ -1,0 +1,5 @@
+module ZephyrIOS {
+    header "zephyr_ios.h"
+    link "c++"
+    export *
+}

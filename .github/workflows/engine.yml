@@ -1,9 +1,9 @@
-name: iOS engine
+name: iOS build
 
 on:
   push:
     branches: [main]
-    paths: ['zephyr-engine/**', '.github/workflows/engine.yml']
+    paths: ['zephyr-engine/**', 'app/**', '.github/workflows/engine.yml']
   workflow_dispatch:
     inputs:
       backports:
@@ -138,3 +138,95 @@ jobs:
             ZephyrIOS.xcframework.zip
             SHA256SUMS
           retention-days: 90
+
+  # ---------------------------------------------------------------- the app
+  app:
+    name: app (${{ matrix.sdk }})
+    needs: xcframework
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write   # the simulator job pushes its screenshot to the ci-screens branch
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [iphoneos, iphonesimulator]
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ZephyrIOS.xcframework
+          path: ${{ runner.temp }}/engine
+      - name: Engine framework into the native plugin
+        run: |
+          mkdir -p plugins/aeolus-native/ios/Frameworks
+          ditto -x -k "$RUNNER_TEMP/engine/ZephyrIOS.xcframework.zip" plugins/aeolus-native/ios/Frameworks/
+          ls plugins/aeolus-native/ios/Frameworks/ZephyrIOS.xcframework
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Web assets and plugins
+        run: |
+          npm ci --no-audit --no-fund
+          npx cap sync ios
+      - name: Build (unsigned)
+        run: |
+          if [ "${{ matrix.sdk }}" = iphoneos ]; then DEST='generic/platform=iOS'; else DEST='generic/platform=iOS Simulator'; fi
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -sdk ${{ matrix.sdk }} -destination "$DEST" -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee "$RUNNER_TEMP/xcodebuild.log" | grep -E "error:|warning: .*AeolusNative|BUILD (SUCCEEDED|FAILED)" || true
+          test -d "$RUNNER_TEMP/dd/Build/Products/Release-${{ matrix.sdk }}/App.app"
+      - name: Unsigned .ipa for sideloading
+        if: matrix.sdk == 'iphoneos'
+        run: |
+          cd "$RUNNER_TEMP"
+          rm -rf Payload && mkdir Payload
+          cp -R dd/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry Aeolus-unsigned.ipa Payload
+          shasum -a 256 Aeolus-unsigned.ipa | tee SHA256SUMS
+          ls -l Aeolus-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        if: matrix.sdk == 'iphoneos'
+        with:
+          name: Aeolus-unsigned-ipa
+          path: |
+            ${{ runner.temp }}/Aeolus-unsigned.ipa
+            ${{ runner.temp }}/SHA256SUMS
+          retention-days: 30
+      - name: Launch in the Simulator
+        if: matrix.sdk == 'iphonesimulator'
+        run: |
+          UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)["devices"]
+          for rt,devs in sorted(d.items(), reverse=True):
+              if "iOS" in rt:
+                  for x in devs:
+                      if x["name"].startswith("iPhone"):
+                          print(x["udid"]); sys.exit(0)
+          sys.exit(1)')"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
+          xcrun simctl install "$UDID" "$RUNNER_TEMP/dd/Build/Products/Release-iphonesimulator/App.app"
+          xcrun simctl launch "$UDID" com.aeolus.wallet
+          sleep 25
+          mkdir -p "$RUNNER_TEMP/screens"
+          xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/screens/launch.png"
+          xcrun simctl spawn "$UDID" launchctl list | grep -i aeolus || { echo "app is not running"; exit 1; }
+          xcrun simctl spawn "$UDID" log show --last 2m --style compact \
+            --predicate 'process == "App" AND (messageType == error OR eventMessage CONTAINS[c] "aeolus" OR eventMessage CONTAINS[c] "capacitor")' \
+            | tail -60 || true
+      - name: Publish the screenshot (ci-screens branch)
+        if: matrix.sdk == 'iphonesimulator' && always()
+        run: |
+          [ -f "$RUNNER_TEMP/screens/launch.png" ] || exit 0
+          cd "$RUNNER_TEMP/screens"
+          git init -q && git checkout -q -b ci-screens
+          git config user.name "ci" && git config user.email "ci@users.noreply.github.com"
+          cp launch.png "launch-${GITHUB_SHA::7}.png"
+          git add -A && git commit -qm "Simulator screenshot of ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screens
