@@ -177,8 +177,11 @@ jobs:
           if [ "${{ matrix.sdk }}" = iphoneos ]; then DEST='generic/platform=iOS'; else DEST='generic/platform=iOS Simulator'; fi
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -sdk ${{ matrix.sdk }} -destination "$DEST" -derivedDataPath "$RUNNER_TEMP/dd" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tee "$RUNNER_TEMP/xcodebuild.log" | grep -E "error:|warning: .*AeolusNative|BUILD (SUCCEEDED|FAILED)" || true
+            build > "$RUNNER_TEMP/xcodebuild.log" 2>&1 || true
+          grep -E "error:|warning: .*AeolusNative|BUILD (SUCCEEDED|FAILED)" "$RUNNER_TEMP/xcodebuild.log" | head -60 || true
+          grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/xcodebuild.log" || { tail -60 "$RUNNER_TEMP/xcodebuild.log"; exit 1; }
           APP="$RUNNER_TEMP/dd/Build/Products/Release-${{ matrix.sdk }}/App.app"
           ls -la "$APP" | head -40
           plutil -p "$APP/Info.plist" || true
