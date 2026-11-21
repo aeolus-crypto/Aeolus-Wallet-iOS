@@ -17,7 +17,9 @@ Builds the Zephyr wallet engine for iOS (arm64 devices and the arm64 iOS Simulat
   that changed from call to call, so the account keys of every saved wallet decrypted to garbage
   and no wallet could be reopened ("file ... does not correspond to ... .keys", zephyr-engine
   runs 1 and 2, 2026-11-21; Monero's 246d76f4f asm-constraint fix alone did not cure it). The
-  wallet runs the slow hash a handful of times per open, so speed does not matter here.
+  wallet runs the slow hash a handful of times per open, so speed does not matter here. With
+  `FORCE_USE_HEAP=1` its 2 MB scratchpad is allocated instead of sitting on the stack (iOS
+  threads have 512 KB stacks; zephyr defines it for iOS only in GUI builds).
   `zios_selftest()` checks the slow hash against Monero's known answers; the app runs it first.
 - **Backports layer** (`patches/backports/`, off by default): the zephyr-backports security
   fixes, for a production release if upstream has not merged them. See its README.
