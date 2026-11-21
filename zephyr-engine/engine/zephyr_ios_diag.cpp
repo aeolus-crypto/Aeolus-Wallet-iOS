@@ -104,6 +104,32 @@ extern "C" char* zios_diag_keys(void) {
         << ",\"same_after_decrypt\":" << (ld && same_keys(k0, a5.get_keys()) ? "true" : "false")
         << ",\"verifies\":" << (ld && verifies(a5.get_keys()) ? "true" : "false") << "}";
     }
+    // 5. a fixed, public test account (recovery key 0x01, timestamp 1): the serialized bytes and
+    //    every field after loading, to compare byte for byte with another platform
+    {
+      crypto::secret_key rk;
+      std::memset(&rk, 0, sizeof rk);
+      reinterpret_cast<unsigned char*>(&rk)[0] = 1;
+      cryptonote::account_base f;
+      f.generate(rk, true, false);
+      f.set_createtime(1);
+      epee::byte_slice blob;
+      epee::serialization::store_t_to_binary(f, blob);
+      std::string s(reinterpret_cast<const char*>(blob.data()), blob.size());
+      cryptonote::account_base g;
+      bool ld = epee::serialization::load_t_from_binary(g, s);
+      const cryptonote::account_keys& a = f.get_keys();
+      const cryptonote::account_keys& b = g.get_keys();
+      o << ",\"fixed\":{\"blob\":\"" << hex(blob.data(), blob.size()) << "\",\"loaded\":" << (ld ? "true" : "false")
+        << ",\"want\":{\"spend_pub\":\"" << hex(&a.m_account_address.m_spend_public_key, 32)
+        << "\",\"view_pub\":\"" << hex(&a.m_account_address.m_view_public_key, 32)
+        << "\",\"spend_sec\":\"" << hex(&a.m_spend_secret_key, 32) << "\",\"view_sec\":\"" << hex(&a.m_view_secret_key, 32)
+        << "\",\"iv\":\"" << hex(&a.m_encryption_iv, 8) << "\",\"ts\":" << f.get_createtime() << "}"
+        << ",\"got\":{\"spend_pub\":\"" << hex(&b.m_account_address.m_spend_public_key, 32)
+        << "\",\"view_pub\":\"" << hex(&b.m_account_address.m_view_public_key, 32)
+        << "\",\"spend_sec\":\"" << hex(&b.m_spend_secret_key, 32) << "\",\"view_sec\":\"" << hex(&b.m_view_secret_key, 32)
+        << "\",\"iv\":\"" << hex(&b.m_encryption_iv, 8) << "\",\"ts\":" << g.get_createtime() << "}}";
+    }
     o << "}";
   } catch (const std::exception& e) {
     o << ",\"exception\":\"" << e.what() << "\"}";
