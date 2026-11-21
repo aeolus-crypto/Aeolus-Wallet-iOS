@@ -1,0 +1,71 @@
+iOS build: no legacy CMakeLists_IOS.txt, no macOS IOKit code on iOS
+
+1. CMakeLists.txt includes CmakeLists_IOS.txt when IOS is set. The file is named
+   CMakeLists_IOS.txt, so the include only resolves on a case-insensitive disk (macOS), where it
+   forces CMAKE_SYSTEM_NAME Darwin, armv7 and the newest device SDK over the toolchain file.
+   monero_c (Cake Wallet) drops the include the same way.
+2. miner.cpp includes IOKit power-source headers and calls their APIs under __APPLE__; iOS has
+   neither. On iOS the code takes the existing generic fallbacks. The wallet never mines.
+
+Neither file is touched by the zephyr-backports security patches (zephyr-backports changes only
+the Windows section of CMakeLists.txt), so this layer and that one apply independently.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 58ff1f4..9234765 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -45,9 +45,8 @@ if (POLICY CMP0148)
+ endif()
+ include(FindPythonInterp)
+ 
+-if (IOS)
+-    INCLUDE(CmakeLists_IOS.txt)
+-endif()
++# iOS builds use a CMake toolchain file (CMAKE_SYSTEM_NAME iOS); the legacy
++# CMakeLists_IOS.txt would override it (Darwin system, armv7, newest device SDK).
+ 
+ project(monero)
+ 
+diff --git a/src/cryptonote_basic/miner.cpp b/src/cryptonote_basic/miner.cpp
+index 3161dc3..e2c6454 100644
+--- a/src/cryptonote_basic/miner.cpp
++++ b/src/cryptonote_basic/miner.cpp
+@@ -46,7 +46,10 @@
+ #include "boost/logic/tribool.hpp"
+ #include <boost/filesystem.hpp>
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__)
++  #include <TargetConditionals.h>
++#endif
++#if defined(__APPLE__) && !TARGET_OS_IPHONE
+   #include <sys/times.h>
+   #include <IOKit/IOKitLib.h>
+   #include <IOKit/ps/IOPSKeys.h>
+@@ -884,7 +887,7 @@ namespace cryptonote
+ 
+       return true;
+ 
+-    #elif defined(__APPLE__)
++    #elif defined(__APPLE__) && !TARGET_OS_IPHONE
+ 
+       mach_msg_type_number_t count;
+       kern_return_t status;
+@@ -950,7 +953,7 @@ namespace cryptonote
+         return true;
+       }
+ 
+-    #elif (defined(__linux__) && defined(_SC_CLK_TCK)) || defined(__APPLE__) || defined(__FreeBSD__)
++    #elif (defined(__linux__) && defined(_SC_CLK_TCK)) || (defined(__APPLE__) && !TARGET_OS_IPHONE) || defined(__FreeBSD__)
+ 
+       struct tms tms;
+       if ( times(&tms) != (clock_t)-1 )
+@@ -979,7 +982,7 @@ namespace cryptonote
+         return boost::logic::tribool(power_status.ACLineStatus != 1);
+     	}
+ 
+-    #elif defined(__APPLE__) 
++    #elif defined(__APPLE__) && !TARGET_OS_IPHONE
+       
+       #if TARGET_OS_MAC && (!defined(MAC_OS_X_VERSION_MIN_REQUIRED) || MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
+         return boost::logic::tribool(IOPSGetTimeRemainingEstimate() != kIOPSTimeRemainingUnlimited);

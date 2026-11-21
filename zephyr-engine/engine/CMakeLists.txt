@@ -1,5 +1,5 @@
 # The iOS engine: zephyr-cpp's wallet sources plus the C interface (zephyr_ios.cpp), as a static
-# library over zephyr's static libraries; scripts/build_engine.sh merges everything into one
+# library over zephyr's static libraries (zephyr-cpp and zephyr are separate trees); scripts/build_engine.sh merges everything into one
 # archive and links the smoke test against it.
 cmake_minimum_required(VERSION 3.16)
 project(zephyr_ios C CXX)
@@ -8,9 +8,10 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(ZEPHYR_CPP "" CACHE PATH "zephyr-cpp source directory")
+set(ZEPHYR_SRC "" CACHE PATH "zephyr source directory")
 set(ZEPHYR_BUILD "" CACHE PATH "zephyr build directory (scripts/build_zephyr.sh)")
 set(ZIOS_SOURCES "unknown" CACHE STRING "description of the pinned sources")
-set(MONERO_PROJECT "${ZEPHYR_CPP}/external/zephyr")
+set(MONERO_PROJECT "${ZEPHYR_SRC}")
 set(MONERO_PROJECT_SRC "${MONERO_PROJECT}/src")
 
 find_package(Boost 1.58 REQUIRED COMPONENTS chrono date_time filesystem program_options regex serialization wserialization system thread)

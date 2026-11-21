@@ -1,0 +1,53 @@
+zephyr-backports security layer for zephyr-cpp 4a99272 (optional)
+
+The tree difference between ZephyrProtocol/zephyr-cpp 4a99272f and
+zephyr-backports/zephyr-cpp v2.3.0-sec.1 (3a2ee602), without the fork-only files and the zephyr
+submodule. Advisories SB-011..SB-014.
+
+diff --git a/src/wallet/monero_wallet_full.cpp b/src/wallet/monero_wallet_full.cpp
+index 991a130..2dad1fd 100644
+--- a/src/wallet/monero_wallet_full.cpp
++++ b/src/wallet/monero_wallet_full.cpp
+@@ -1648,6 +1648,7 @@ namespace monero {
+     }
+ 
+     // scan txs
++    boost::lock_guard<boost::mutex> guarg(m_sync_mutex); // synchronize scanning
+     m_w2->scan_tx(tx_hashes);
+   }
+ 
+@@ -2048,9 +2049,11 @@ namespace monero {
+     std::vector<std::pair<crypto::key_image, crypto::signature>> ski;
+     ski.resize(key_images.size());
+     for (uint64_t n = 0; n < ski.size(); ++n) {
++      if (key_images[n]->m_hex == boost::none) throw std::runtime_error("key image hex is not defined");
+       if (!epee::string_tools::hex_to_pod(key_images[n]->m_hex.get(), ski[n].first)) {
+         throw std::runtime_error("failed to parse key image");
+       }
++      if (key_images[n]->m_signature == boost::none) throw std::runtime_error("key image signature is not defined");
+       if (!epee::string_tools::hex_to_pod(key_images[n]->m_signature.get(), ski[n].second)) {
+         throw std::runtime_error("failed to parse signature");
+       }
+diff --git a/src/wallet/monero_wallet_model.cpp b/src/wallet/monero_wallet_model.cpp
+index 36a0863..0074cca 100644
+--- a/src/wallet/monero_wallet_model.cpp
++++ b/src/wallet/monero_wallet_model.cpp
+@@ -543,6 +543,9 @@ namespace monero {
+     // convert query property tree to block
+     std::shared_ptr<monero_block> block = node_to_block_query(block_node);
+ 
++    // empty query if no txs
++    if (block->m_txs.empty()) return std::make_shared<monero_tx_query>();
++
+     // get tx query
+     std::shared_ptr<monero_tx_query> tx_query = std::static_pointer_cast<monero_tx_query>(block->m_txs[0]);
+ 
+@@ -1274,7 +1277,7 @@ namespace monero {
+     }
+ 
+     // filter on extensions
+-    if (!m_subaddress_indices.empty() && find(m_subaddress_indices.begin(), m_subaddress_indices.end(), *output->m_subaddress_index) == m_subaddress_indices.end()) return false;
++    if (!m_subaddress_indices.empty() && (output->m_subaddress_index == boost::none || find(m_subaddress_indices.begin(), m_subaddress_indices.end(), *output->m_subaddress_index) == m_subaddress_indices.end())) return false;
+     if (m_min_amount != boost::none && (output->m_amount == boost::none || output->m_amount.get() < m_min_amount.get())) return false;
+     if (m_max_amount != boost::none && (output->m_amount == boost::none || output->m_amount.get() > m_max_amount.get())) return false;
+ 

@@ -5,12 +5,14 @@
 set -euo pipefail
 . "$(dirname "$0")/env.sh" "${1:-iphoneos}"
 
-SOURCES="myzephyr-java $MZJ_TAG, zephyr-cpp $(git -C "$ZCPP" rev-parse --short=12 HEAD), zephyr $(git -C "$Z" rev-parse --short=12 HEAD), $ZIOS_PLATFORM"
+. "$ROOT/deps/versions.env"
+BP="$(git -C "$Z" diff --quiet -- src/wallet/wallet2.cpp && echo off || echo on)"
+SOURCES="zephyr $ZEPHYR_TAG $(git -C "$Z" rev-parse --short=12 HEAD), zephyr-cpp $(git -C "$ZCPP" rev-parse --short=12 HEAD), boost $BOOST_VERSION, backports $BP, $ZIOS_PLATFORM"
 rm -rf "$EB"
 cmake -S "$ROOT/engine" -B "$EB" -G "Unix Makefiles" \
   -DCMAKE_TOOLCHAIN_FILE="$ROOT/cmake/ios.toolchain.cmake" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DZEPHYR_CPP="$ZCPP" -DZEPHYR_BUILD="$ZB" -DZIOS_SOURCES="$SOURCES"
+  -DZEPHYR_CPP="$ZCPP" -DZEPHYR_SRC="$Z" -DZEPHYR_BUILD="$ZB" -DZIOS_SOURCES="$SOURCES"
 make -C "$EB" -j"$NPROC" VERBOSE=1
 
 # the archives to merge: the engine, zephyr's libraries as zephyr-cpp lists them, the depends libraries

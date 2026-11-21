@@ -1,6 +1,6 @@
-# CMake toolchain for zephyr and the engine on iOS (arm64), against the depends prefix built by
-# scripts/build_depends.sh. Environment (also seen by try_compile, which re-reads this file):
-#   ZIOS_PREFIX    contrib/depends/aarch64-apple-ios of the zephyr tree
+# CMake toolchain for zephyr and the engine on iOS (arm64), against the dependency prefix built by
+# deps/build_deps.sh. Environment (also seen by try_compile, which re-reads this file):
+#   ZIOS_PREFIX    the dependency prefix of deps/build_deps.sh
 #   ZIOS_PLATFORM  iphoneos (devices) or iphonesimulator
 #   ZIOS_MIN_IOS   deployment target, e.g. 15.0
 set(_zios_prefix "$ENV{ZIOS_PREFIX}")
@@ -23,10 +23,6 @@ set(CMAKE_OSX_SYSROOT ${_zios_platform})
 set(CMAKE_OSX_DEPLOYMENT_TARGET ${_zios_min})
 set(CMAKE_MACOSX_BUNDLE OFF)
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
-
-# boost 1.64 uses std::unary_function, std::auto_ptr and the binders, which libc++ removes in
-# C++17 mode; libc++'s documented switches keep them
-set(CMAKE_CXX_FLAGS_INIT "-D_LIBCPP_ENABLE_CXX17_REMOVED_FEATURES -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION")
 
 # what zephyr's own depends toolchain sets for a cross build
 set(STATIC ON)
@@ -51,8 +47,8 @@ set(UNBOUND_LIBRARIES ${_zios_prefix}/lib/libunbound.a)
 set(ZMQ_INCLUDE_PATH ${_zios_prefix}/include)
 set(ZMQ_LIB ${_zios_prefix}/lib/libzmq.a)
 
-# boost 1.64 has no CMake package: FindBoost (CMP0167 OLD), static archives against the shared
-# C++ runtime (the darwin recipe's runtime-link=shared)
+# Boost: zephyr uses FindBoost (CMP0167 OLD); static archives (--layout=system) against the
+# shared C++ runtime
 set(Boost_NO_BOOST_CMAKE ON)
 set(Boost_IGNORE_SYSTEM_PATH ON)
 set(Boost_NO_SYSTEM_PATHS ON)

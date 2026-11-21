@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds zephyr's wallet libraries for iOS (the targets the Android build builds: wallet and
-# cryptonote_protocol, Trezor off). Usage: scripts/build_zephyr.sh <iphoneos|iphonesimulator>
+# Builds zephyr's wallet libraries for iOS against deps/build_deps.sh's prefix (the targets the
+# Android build builds: wallet and cryptonote_protocol, Trezor off). Usage: scripts/build_zephyr.sh <iphoneos|iphonesimulator>
 set -euo pipefail
 . "$(dirname "$0")/env.sh" "${1:-iphoneos}"
 mkdir -p "$ZB"

@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths: ['zephyr-engine/**', '.github/workflows/engine.yml']
   workflow_dispatch:
+    inputs:
+      backports:
+        description: 'Apply the optional zephyr-backports security layer'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -13,7 +18,20 @@ defaults:
   run:
     working-directory: zephyr-engine
 
+env:
+  ZIOS_BACKPORTS: ${{ inputs.backports && '1' || '0' }}
+
 jobs:
+  layers:
+    name: patch layers apply
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: iOS layer alone
+        run: scripts/setup_tree.sh
+      - name: backports layer + iOS layer
+        run: rm -rf work && ZIOS_BACKPORTS=1 scripts/setup_tree.sh
+
   build:
     name: ${{ matrix.platform }}
     runs-on: macos-15
@@ -30,12 +48,8 @@ jobs:
           sw_vers
           xcodebuild -version
           cmake --version | head -1
-          clang --version | head -1
 
-      - name: Build tools (autoconf for unbound and libsodium)
-        run: brew install autoconf automake libtool
-
-      - name: Pinned sources
+      - name: Pinned upstream sources and patch layers
         run: scripts/setup_tree.sh
 
       - name: Restore dependency cache
@@ -43,20 +57,20 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/built
-            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/sources
-          key: depends-${{ matrix.platform }}-${{ hashFiles('zephyr-engine/pins.env', 'zephyr-engine/patches/*.patch', 'zephyr-engine/scripts/build_depends.sh') }}
+            zephyr-engine/work/deps/${{ matrix.platform }}/prefix
+            zephyr-engine/work/deps/sources
+          key: deps-v2-${{ matrix.platform }}-${{ hashFiles('zephyr-engine/deps/**') }}
 
-      - name: Dependencies (boost, OpenSSL, libsodium, unbound, expat, zeromq)
-        run: scripts/build_depends.sh ${{ matrix.platform }}
+      - name: Dependencies (Boost 1.84, OpenSSL, libsodium, expat, unbound, zeromq)
+        run: deps/build_deps.sh ${{ matrix.platform }}
 
       - name: Save dependency cache
         if: steps.depcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
-            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/built
-            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/sources
+            zephyr-engine/work/deps/${{ matrix.platform }}/prefix
+            zephyr-engine/work/deps/sources
           key: ${{ steps.depcache.outputs.cache-primary-key }}
 
       - name: Zephyr wallet libraries
@@ -90,7 +104,7 @@ jobs:
         if: failure()
         run: |
           mkdir -p logs
-          find work -name config.log -o -name CMakeError.log -o -name CMakeOutput.log -o -name CMakeConfigureLog.yaml | while read -r f; do
+          find work -name config.log -o -name CMakeError.log -o -name CMakeConfigureLog.yaml | while read -r f; do
             mkdir -p "logs/$(dirname "$f")" && cp "$f" "logs/$f"; done
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -123,4 +137,4 @@ jobs:
           path: |
             ZephyrIOS.xcframework.zip
             SHA256SUMS
-          retention-days: 30
+          retention-days: 90

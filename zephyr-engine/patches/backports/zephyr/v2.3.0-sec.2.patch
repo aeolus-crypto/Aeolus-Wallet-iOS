@@ -1,0 +1,797 @@
+zephyr-backports security layer for zephyr v2.3.0 (optional)
+
+The tree difference between ZephyrProtocol/zephyr v2.3.0 (67c5f53b) and
+zephyr-backports/zephyr v2.3.0-sec.2 (8c6a1202), without the fork-only files (.github,
+README.md, SECURITY-BACKPORTS.md) and without the RandomX submodule bump, which
+scripts/setup_tree.sh applies itself (102f8acf -> 12f2c2ff). Advisories SB-001..SB-010 and
+SB-015..SB-034 of zephyr-backports/zephyr-backports backports/advisories.tsv.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 58ff1f4..4f1e197 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -791,9 +791,8 @@ else()
+     # mingw doesn't support LTO (multiple definition errors at link time)
+     set(USE_LTO_DEFAULT false)
+     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--stack,10485760")
+-    if(NOT BUILD_64)
+-      add_definitions(-DWINVER=0x0600 -D_WIN32_WINNT=0x0600)
+-    endif()
++    # TryAcquireSRWLock* requires Windows 7 or later.
++    add_definitions(-DWINVER=0x0601 -D_WIN32_WINNT=0x0601)
+   endif()
+   set(C_WARNINGS "-Waggregate-return -Wnested-externs -Wold-style-definition -Wstrict-prototypes")
+   set(CXX_WARNINGS "-Wno-reorder -Wno-missing-field-initializers")
+@@ -896,6 +895,11 @@ else()
+   add_c_flag_if_supported(  -Werror=return-type C_SECURITY_FLAGS)
+   add_cxx_flag_if_supported(-Werror=return-type CXX_SECURITY_FLAGS)
+ 
++  # A missing WinAPI prototype (e.g. TryAcquireSRWLock*) must fail the build
++  if(MINGW)
++    add_c_flag_if_supported(-Werror=implicit-function-declaration C_SECURITY_FLAGS)
++  endif()
++
+   message(STATUS "Using C security hardening flags: ${C_SECURITY_FLAGS}")
+   message(STATUS "Using C++ security hardening flags: ${CXX_SECURITY_FLAGS}")
+   message(STATUS "Using linker security hardening flags: ${LD_SECURITY_FLAGS}")
+diff --git a/contrib/depends/funcs.mk b/contrib/depends/funcs.mk
+index e08669c..adb9d27 100644
+--- a/contrib/depends/funcs.mk
++++ b/contrib/depends/funcs.mk
+@@ -143,7 +143,7 @@ $(1)_config_env+=PKG_CONFIG_PATH=$($($(1)_type)_prefix)/share/pkgconfig
+ $(1)_config_env+=PATH="$(build_prefix)/bin:$(PATH)"
+ $(1)_build_env+=PATH="$(build_prefix)/bin:$(PATH)"
+ $(1)_stage_env+=PATH="$(build_prefix)/bin:$(PATH)"
+-$(1)_autoconf=./configure --host=$($($(1)_type)_host) --prefix=$($($(1)_type)_prefix) $$($(1)_config_opts) CC="$$($(1)_cc)" CXX="$$($(1)_cxx)"
++$(1)_autoconf=./configure --build=$(BUILD) --host=$($($(1)_type)_host) --prefix=$($($(1)_type)_prefix) $$($(1)_config_opts) CC="$$($(1)_cc)" CXX="$$($(1)_cxx)"
+ 
+ ifeq ($(filter $(1),libusb unbound),)
+ $(1)_autoconf += --disable-dependency-tracking
+diff --git a/contrib/depends/packages/openssl.mk b/contrib/depends/packages/openssl.mk
+index a157762..57a86e0 100644
+--- a/contrib/depends/packages/openssl.mk
++++ b/contrib/depends/packages/openssl.mk
+@@ -1,8 +1,8 @@
+ package=openssl
+-$(package)_version=3.0.13
+-$(package)_download_path=https://www.openssl.org/source
++$(package)_version=3.0.22
++$(package)_download_path=https://github.com/openssl/openssl/releases/download/openssl-$($(package)_version)
+ $(package)_file_name=$(package)-$($(package)_version).tar.gz
+-$(package)_sha256_hash=88525753f79d3bec27d2fa7c66aa0b92b3aa9498dafd93d7cfa4b3780cdae313
++$(package)_sha256_hash=67ebca7e50d17383028045486653492195b83db95f8558709701bb47b5c1ef81
+ 
+ define $(package)_set_vars
+ $(package)_config_env=AR="$($(package)_ar)" ARFLAGS=$($(package)_arflags) RANLIB="$($(package)_ranlib)" CC="$($(package)_cc)"
+diff --git a/contrib/depends/packages/unbound.mk b/contrib/depends/packages/unbound.mk
+index d9ef007..ba7b39d 100644
+--- a/contrib/depends/packages/unbound.mk
++++ b/contrib/depends/packages/unbound.mk
+@@ -1,10 +1,10 @@
+ package=unbound
+-$(package)_version=1.19.1
++$(package)_version=1.26.1
+ $(package)_download_path=https://www.nlnetlabs.nl/downloads/$(package)/
+ $(package)_file_name=$(package)-$($(package)_version).tar.gz
+-$(package)_sha256_hash=bc1d576f3dd846a0739adc41ffaa702404c6767d2b6082deb9f2f97cbb24a3a9
++$(package)_sha256_hash=35a6dc0e425a9282c3426d9a3043144011bf0534aed4b73ab62c52aee0af1503
+ $(package)_dependencies=openssl expat
+-$(package)_patches=disable-glibc-reallocarray.patch
++$(package)_patches=disable-glibc-reallocarray.patch hardcode_config_date.patch
+ 
+ 
+ define $(package)_set_vars
+@@ -20,7 +20,10 @@ endef
+ 
+ define $(package)_preprocess_cmds
+   patch -p1 < $($(package)_patch_dir)/disable-glibc-reallocarray.patch &&\
+-  autoconf
++  patch -p1 < $($(package)_patch_dir)/hardcode_config_date.patch &&\
++  autoconf && \
++  rm doc/*.odp doc/*.pdf contrib/*.tar.gz contrib/*.tar.bz2 &&\
++  rm -rf testdata dnscrypt/testdata
+ endef
+ 
+ define $(package)_config_cmds
+diff --git a/contrib/depends/patches/unbound/hardcode_config_date.patch b/contrib/depends/patches/unbound/hardcode_config_date.patch
+new file mode 100644
+index 0000000..fd075da
+--- /dev/null
++++ b/contrib/depends/patches/unbound/hardcode_config_date.patch
+@@ -0,0 +1,22 @@
++diff --git a/configure.ac b/configure.ac
++index f1c5b04..13f4ce6 100644
++--- a/configure.ac
+++++ b/configure.ac
++@@ -994,7 +994,7 @@ if test "`uname`" = "Linux"; then
++ 	GCC_DOCKER_LINTFLAGS='-syntax'
++ 	AC_SUBST(GCC_DOCKER_LINTFLAGS)
++ fi
++-AX_BUILD_DATE_EPOCH(CONFIG_DATE, [%Y%m%d])
+++CONFIG_DATE=20000101
++ AC_ARG_VAR(SOURCE_DATE_EPOCH, [If it is set, it uses the value of that variable instead of the current time as the build timestamp. The format is a unix timestamp. This enables reproducible build output.])
++ AC_SUBST(CONFIG_DATE)
++ 
++@@ -2559,7 +2559,7 @@ char *unbound_stat_strdup_log(const char *s, const char* file, int line,
++ dnl if we build from source tree, the man pages need @date@ and @version@
++ dnl if this is a distro tarball, that was already done by makedist.sh
++ AC_SUBST(version, [VERSION_MAJOR.VERSION_MINOR.VERSION_MICRO])
++-AX_BUILD_DATE_EPOCH(date, [[%b %e, %Y]])
+++date='Jan 1, 2000'
++ AC_SUBST(date)
++ 
++ AC_CONFIG_FILES([Makefile doc/example.conf doc/libunbound.3 doc/unbound.8 doc/unbound-anchor.8 doc/unbound-checkconf.8 doc/unbound.conf.5 doc/unbound-control.8 doc/unbound-host.1 smallapp/unbound-control-setup.sh dnstap/dnstap_config.h dnscrypt/dnscrypt_config.h contrib/libunbound.pc contrib/unbound.socket contrib/unbound.service contrib/unbound_portable.service])
+diff --git a/contrib/epee/include/net/levin_protocol_handler_async.h b/contrib/epee/include/net/levin_protocol_handler_async.h
+index 5122f16..10c5d87 100644
+--- a/contrib/epee/include/net/levin_protocol_handler_async.h
++++ b/contrib/epee/include/net/levin_protocol_handler_async.h
+@@ -544,32 +544,34 @@ public:
+         {
+           if(m_cache_in_buffer.size() < sizeof(bucket_head2))
+           {
+-            if(m_cache_in_buffer.size() >= sizeof(uint64_t) && *((uint64_t*)m_cache_in_buffer.span(8).data()) != SWAP64LE(LEVIN_SIGNATURE))
++            if(m_cache_in_buffer.size() >= sizeof(uint64_t))
+             {
+-              MWARNING(m_connection_context << "Signature mismatch, connection will be closed");
+-              return false;
++              std::uint64_t levin_sig;
++              memcpy(&levin_sig, m_cache_in_buffer.span(sizeof(std::uint64_t)).data(), sizeof(std::uint64_t));
++              if (SWAP64LE(LEVIN_SIGNATURE) != levin_sig)
++              {
++                MWARNING(m_connection_context << "Signature mismatch, connection will be closed");
++                return false;
++              }
+             }
+             is_continue = false;
+             break;
+           }
+ 
+-#if BYTE_ORDER == LITTLE_ENDIAN
+-          bucket_head2& phead = *(bucket_head2*)m_cache_in_buffer.span(sizeof(bucket_head2)).data();
+-#else
+-          bucket_head2 phead = *(bucket_head2*)m_cache_in_buffer.span(sizeof(bucket_head2)).data();
+-          phead.m_signature = SWAP64LE(phead.m_signature);
+-          phead.m_cb = SWAP64LE(phead.m_cb);
+-          phead.m_command = SWAP32LE(phead.m_command);
+-          phead.m_return_code = SWAP32LE(phead.m_return_code);
+-          phead.m_flags = SWAP32LE(phead.m_flags);
+-          phead.m_protocol_version = SWAP32LE(phead.m_protocol_version);
++          memcpy(&m_current_head, m_cache_in_buffer.span(sizeof(bucket_head2)).data(), sizeof(bucket_head2));
++#if BYTE_ORDER != LITTLE_ENDIAN
++          m_current_head.m_signature = SWAP64LE(m_current_head.m_signature);
++          m_current_head.m_cb = SWAP64LE(m_current_head.m_cb);
++          m_current_head.m_command = SWAP32LE(m_current_head.m_command);
++          m_current_head.m_return_code = SWAP32LE(m_current_head.m_return_code);
++          m_current_head.m_flags = SWAP32LE(m_current_head.m_flags);
++          m_current_head.m_protocol_version = SWAP32LE(m_current_head.m_protocol_version);
+ #endif
+-          if(LEVIN_SIGNATURE != phead.m_signature)
++          if(LEVIN_SIGNATURE != m_current_head.m_signature)
+           {
+             LOG_ERROR_CC(m_connection_context, "Signature mismatch, connection will be closed");
+             return false;
+           }
+-          m_current_head = phead;
+ 
+           m_cache_in_buffer.erase(sizeof(bucket_head2));
+           m_state = stream_state_body;
+diff --git a/contrib/epee/src/byte_slice.cpp b/contrib/epee/src/byte_slice.cpp
+index 82ca12f..3683ef5 100644
+--- a/contrib/epee/src/byte_slice.cpp
++++ b/contrib/epee/src/byte_slice.cpp
+@@ -152,7 +152,11 @@ namespace epee
+   {
+     std::size_t space_needed = 0;
+     for (const auto& source : sources)
++    {
++      if (std::numeric_limits<std::size_t>::max() - space_needed < source.size())
++        throw std::bad_alloc{};
+       space_needed += source.size();
++    }
+ 
+     if (space_needed)
+     {
+@@ -162,9 +166,9 @@ namespace epee
+ 
+       for (const auto& source : sources)
+       {
++        assert(source.size() <= out.size()); // see check above
+         std::memcpy(out.data(), source.data(), source.size());
+-        if (out.remove_prefix(source.size()) < source.size())
+-          throw std::bad_alloc{}; // size_t overflow on space_needed
++        out.remove_prefix(source.size());
+       }
+       storage_ = std::move(storage);
+     }
+diff --git a/contrib/epee/src/parserse_base_utils.cpp b/contrib/epee/src/parserse_base_utils.cpp
+index e154a75..923dde4 100644
+--- a/contrib/epee/src/parserse_base_utils.cpp
++++ b/contrib/epee/src/parserse_base_utils.cpp
+@@ -129,7 +129,7 @@ namespace misc_utils
+             case '/':  //Slash character
+               val.push_back('/');break;
+             case 'u':  //Unicode code point
+-              if (buf_end - it < 4)
++              if (buf_end - it < 5)
+               {
+                 ASSERT_MES_AND_THROW("Invalid Unicode escape sequence");
+               }
+diff --git a/external/easylogging++/easylogging++.cc b/external/easylogging++/easylogging++.cc
+index 891936b..bafd5cf 100644
+--- a/external/easylogging++/easylogging++.cc
++++ b/external/easylogging++/easylogging++.cc
+@@ -16,6 +16,7 @@
+ 
+ #define EASYLOGGING_CC
+ #include "easylogging++.h"
++#include <cstdint>
+ 
+ #include <atomic>
+ #include <unistd.h>
+@@ -2494,11 +2495,11 @@ void DefaultLogDispatchCallback::handle(const LogDispatchData* data) {
+ 
+ 
+ template<typename Transform>
+-static inline void utf8canonical(std::string &s, Transform t = [](wint_t c)->wint_t { return c; })
++static inline void utf8canonical(std::string &s, Transform t = [](std::uint32_t c)->std::uint32_t { return c; })
+ {
+     size_t avail = s.size();
+     const char *ptr = s.data();
+-    wint_t cp = 0;
++    std::uint32_t cp = 0;
+     int rbytes = 1, bytes = -1;
+     char wbuf[8], *wptr;
+     size_t w_offset = 0;
+@@ -2577,7 +2578,7 @@ static inline void utf8canonical(std::string &s, Transform t = [](wint_t c)->win
+ 
+ void sanitize(std::string &s)
+ {
+-  utf8canonical(s, [](wint_t c)->wint_t {
++  utf8canonical(s, [](std::uint32_t c)->std::uint32_t {
+     if (c == 9 || c == 10 || c == 13)
+       return c;
+     if (c < 0x20)
+diff --git a/external/easylogging++/easylogging++.h b/external/easylogging++/easylogging++.h
+index b983a79..87bc50f 100644
+--- a/external/easylogging++/easylogging++.h
++++ b/external/easylogging++/easylogging++.h
+@@ -2789,6 +2789,7 @@ class Storage : base::NoCopy, public base::threading::ThreadSafe {
+   }
+ };
+ extern ELPP_EXPORT base::type::StoragePointer elStorage;
++ELPP_EXPORT void sanitize(std::string& s);
+ #define ELPP el::base::Storage::getELPP()
+ class DefaultLogDispatchCallback : public LogDispatchCallback {
+  protected:
+diff --git a/src/common/dns_utils.cpp b/src/common/dns_utils.cpp
+index 6fc784f..9271c83 100644
+--- a/src/common/dns_utils.cpp
++++ b/src/common/dns_utils.cpp
+@@ -106,6 +106,7 @@ get_builtin_ds(void)
+   static const char * const ds[] =
+   {
+     ". IN DS 20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D\n",
++    ". IN DS 38696 8 2 683D2D0ACB8C9B712A1948B27F741219298D0A450D612C483AF444A4C0FB2B16\n",
+     NULL
+   };
+   return ds;
+diff --git a/src/common/scoped_message_writer.h b/src/common/scoped_message_writer.h
+index 5814d7f..5b92efe 100644
+--- a/src/common/scoped_message_writer.h
++++ b/src/common/scoped_message_writer.h
+@@ -99,17 +99,20 @@ public:
+     {
+       m_flush = false;
+ 
+-      MCLOG_FILE(m_log_level, "msgwriter", m_oss.str());
++      std::string message = m_oss.str();
++      MCLOG_FILE(m_log_level, "msgwriter", message);
++      try { el::base::sanitize(message); }
++      catch (const std::exception&) { message = "<Invalid UTF-8 in message>"; }
+ 
+       PAUSE_READLINE();
+       if (epee::console_color_default == m_color)
+       {
+-        std::cout << m_oss.str();
++        std::cout << message;
+       }
+       else
+       {
+         set_console_color(m_color, m_bright);
+-        std::cout << m_oss.str();
++        std::cout << message;
+         epee::reset_console_color();
+       }
+       std::cout << std::endl;
+diff --git a/src/crypto/hash.h b/src/crypto/hash.h
+index c1fccc5..498bfac 100644
+--- a/src/crypto/hash.h
++++ b/src/crypto/hash.h
+@@ -30,8 +30,9 @@
+ 
+ #pragma once
+ 
+-#include <stddef.h>
+ #include <iostream>
++#include <stddef.h>
++#include <stdexcept>
+ 
+ #include "common/pod-class.h"
+ #include "generic-ops.h"
+@@ -70,11 +71,20 @@ namespace crypto {
+     return h;
+   }
+ 
++  static constexpr void cn_variant1_check(const std::size_t length, const int variant)
++  {
++    // see VARIANT1_CHECK in slow-hash.c
++    if (variant == 1 && length < 43)
++      throw std::logic_error("Cryptonight variant 1 is undefined for inputs of less than 43 bytes");
++  }
++
+   inline void cn_slow_hash(const void *data, std::size_t length, hash &hash, int variant = 0, uint64_t height = 0) {
++    cn_variant1_check(length, variant);
+     cn_slow_hash(data, length, reinterpret_cast<char *>(&hash), variant, 0/*prehashed*/, height);
+   }
+ 
+   inline void cn_slow_hash_prehashed(const void *data, std::size_t length, hash &hash, int variant = 0, uint64_t height = 0) {
++    cn_variant1_check(length, variant);
+     cn_slow_hash(data, length, reinterpret_cast<char *>(&hash), variant, 1/*prehashed*/, height);
+   }
+ 
+diff --git a/src/net/zmq.cpp b/src/net/zmq.cpp
+index f57cbda..06af10d 100644
+--- a/src/net/zmq.cpp
++++ b/src/net/zmq.cpp
+@@ -144,16 +144,27 @@ namespace zmq
+                 static constexpr const int max_out = std::numeric_limits<int>::max();
+                 const std::string::size_type initial = payload.size();
+                 message part{};
++                bool too_large = false;
+                 for (;;)
+                 {
+                     int last = 0;
+                     if ((last = zmq_msg_recv(part.handle(), socket, flags)) < 0)
+                         return last;
+ 
+-                    payload.append(part.data(), part.size());
++                    if (!too_large)
++                        too_large =
++                            max_message_size < payload.size() ||
++                            max_message_size - payload.size() < part.size();
++                    if (!too_large)
++                        payload.append(part.data(), part.size());
+                     if (!zmq_msg_more(part.handle()))
+                         break;
+                 }
++                if (too_large)
++                {
++                    errno = EMSGSIZE;
++                    return -1;
++                }
+                 const std::string::size_type added = payload.size() - initial;
+                 return unsigned(max_out) < added ? max_out : int(added);
+             }
+diff --git a/src/net/zmq.h b/src/net/zmq.h
+index 2b60432..998a3a2 100644
+--- a/src/net/zmq.h
++++ b/src/net/zmq.h
+@@ -64,6 +64,8 @@ namespace net
+ {
+ namespace zmq
+ {
++    constexpr std::size_t max_message_size = 10 * 1024 * 1024; // 10 MiB
++
+     //! \return Category for ZMQ errors.
+     const std::error_category& error_category() noexcept;
+ 
+diff --git a/src/rpc/core_rpc_server.h b/src/rpc/core_rpc_server.h
+index e9bd4e4..4ff4f8d 100644
+--- a/src/rpc/core_rpc_server.h
++++ b/src/rpc/core_rpc_server.h
+@@ -107,7 +107,7 @@ namespace cryptonote
+       MAP_URI_AUTO_BIN2("/get_outs.bin", on_get_outs_bin, COMMAND_RPC_GET_OUTPUTS_BIN)
+       MAP_URI_AUTO_JON2("/get_transactions", on_get_transactions, COMMAND_RPC_GET_TRANSACTIONS)
+       MAP_URI_AUTO_JON2("/gettransactions", on_get_transactions, COMMAND_RPC_GET_TRANSACTIONS)
+-      MAP_URI_AUTO_JON2("/get_alt_blocks_hashes", on_get_alt_blocks_hashes, COMMAND_RPC_GET_ALT_BLOCKS_HASHES)
++      MAP_URI_AUTO_JON2_IF("/get_alt_blocks_hashes", on_get_alt_blocks_hashes, COMMAND_RPC_GET_ALT_BLOCKS_HASHES, !m_restricted)
+       MAP_URI_AUTO_JON2("/is_key_image_spent", on_is_key_image_spent, COMMAND_RPC_IS_KEY_IMAGE_SPENT)
+       MAP_URI_AUTO_JON2("/send_raw_transaction", on_send_raw_tx, COMMAND_RPC_SEND_RAW_TX)
+       MAP_URI_AUTO_JON2("/sendrawtransaction", on_send_raw_tx, COMMAND_RPC_SEND_RAW_TX)
+@@ -120,7 +120,7 @@ namespace cryptonote
+       MAP_URI_AUTO_JON2_IF("/set_log_hash_rate", on_set_log_hash_rate, COMMAND_RPC_SET_LOG_HASH_RATE, !m_restricted)
+       MAP_URI_AUTO_JON2_IF("/set_log_level", on_set_log_level, COMMAND_RPC_SET_LOG_LEVEL, !m_restricted)
+       MAP_URI_AUTO_JON2_IF("/set_log_categories", on_set_log_categories, COMMAND_RPC_SET_LOG_CATEGORIES, !m_restricted)
+-      MAP_URI_AUTO_JON2("/get_transaction_pool", on_get_transaction_pool, COMMAND_RPC_GET_TRANSACTION_POOL)
++      MAP_URI_AUTO_JON2_IF("/get_transaction_pool", on_get_transaction_pool, COMMAND_RPC_GET_TRANSACTION_POOL, !m_restricted)
+       MAP_URI_AUTO_JON2("/get_transaction_pool_hashes.bin", on_get_transaction_pool_hashes_bin, COMMAND_RPC_GET_TRANSACTION_POOL_HASHES_BIN)
+       MAP_URI_AUTO_JON2("/get_transaction_pool_hashes", on_get_transaction_pool_hashes, COMMAND_RPC_GET_TRANSACTION_POOL_HASHES)
+       MAP_URI_AUTO_JON2("/get_transaction_pool_stats", on_get_transaction_pool_stats, COMMAND_RPC_GET_TRANSACTION_POOL_STATS)
+diff --git a/src/rpc/message.cpp b/src/rpc/message.cpp
+index 9fda96e..b75fc6f 100644
+--- a/src/rpc/message.cpp
++++ b/src/rpc/message.cpp
+@@ -42,6 +42,7 @@ const char* Message::STATUS_RETRY = "Retry";
+ const char* Message::STATUS_FAILED = "Failed";
+ const char* Message::STATUS_BAD_REQUEST = "Invalid request type";
+ const char* Message::STATUS_BAD_JSON = "Malformed json";
++const char* Message::STATUS_REQUEST_TOO_LARGE = "Request too large";
+ 
+ namespace
+ {
+@@ -233,6 +234,15 @@ epee::byte_slice BAD_JSON(const std::string& error_details)
+   return FullMessage::getResponse(fail, invalid);
+ }
+ 
++epee::byte_slice REQUEST_TOO_LARGE()
++{
++  rapidjson::Value invalid;
++  Message fail;
++  fail.status = Message::STATUS_REQUEST_TOO_LARGE;
++  fail.error_details = "Request exceeds maximum message size.";
++  return FullMessage::getResponse(fail, invalid);
++}
++
+ 
+ }  // namespace rpc
+ 
+diff --git a/src/rpc/message.h b/src/rpc/message.h
+index b7253e0..93f87b5 100644
+--- a/src/rpc/message.h
++++ b/src/rpc/message.h
+@@ -53,6 +53,7 @@ namespace rpc
+       static const char* STATUS_FAILED;
+       static const char* STATUS_BAD_REQUEST;
+       static const char* STATUS_BAD_JSON;
++      static const char* STATUS_REQUEST_TOO_LARGE;
+ 
+       Message() : status(STATUS_OK), rpc_version(0) { }
+ 
+@@ -106,6 +107,8 @@ namespace rpc
+ 
+   epee::byte_slice BAD_JSON(const std::string& error_details);
+ 
++  epee::byte_slice REQUEST_TOO_LARGE();
++
+ 
+ }  // namespace rpc
+ 
+diff --git a/src/rpc/zmq_server.cpp b/src/rpc/zmq_server.cpp
+index d73ea3b..7ceb51e 100644
+--- a/src/rpc/zmq_server.cpp
++++ b/src/rpc/zmq_server.cpp
+@@ -35,6 +35,7 @@
+ #include <system_error>
+ 
+ #include "byte_slice.h"
++#include "rpc/message.h"
+ #include "rpc/zmq_pub.h"
+ 
+ #undef MONERO_DEFAULT_LOG_CATEGORY
+@@ -46,7 +47,7 @@ namespace cryptonote
+ namespace
+ {
+   constexpr const int num_zmq_threads = 1;
+-  constexpr const std::int64_t max_message_size = 10 * 1024 * 1024; // 10 MiB
++  constexpr const std::int64_t max_frame_size = net::zmq::max_message_size;
+   constexpr const std::chrono::seconds linger_timeout{2}; // wait period for pending out messages
+ 
+   net::zmq::socket init_socket(void* context, int type, epee::span<const std::string> addresses)
+@@ -62,7 +63,7 @@ namespace
+       return nullptr;
+     }
+ 
+-    if (zmq_setsockopt(out.get(), ZMQ_MAXMSGSIZE, std::addressof(max_message_size), sizeof(max_message_size)) != 0)
++    if (zmq_setsockopt(out.get(), ZMQ_MAXMSGSIZE, std::addressof(max_frame_size), sizeof(max_frame_size)) != 0)
+     {
+       MONERO_LOG_ZMQ_ERROR("Failed to set maximum incoming message size");
+       return nullptr;
+@@ -154,7 +155,15 @@ void ZmqServer::serve()
+         state->relay_to_pub(relay.get(), pub.get());
+ 
+       if (sockets[1].revents)
+-        state->sub_request(MONERO_UNWRAP(net::zmq::receive(pub.get(), ZMQ_DONTWAIT)));
++      {
++        expect<std::string> message = net::zmq::receive(pub.get(), ZMQ_DONTWAIT);
++        if (message)
++          state->sub_request(*message);
++        else if (message == net::zmq::make_error_code(ETERM))
++          MONERO_THROW(message.error(), "ZMQ-PUB context terminated");
++        else if (message != net::zmq::make_error_code(EAGAIN))
++          MERROR("Read failure on ZMQ-PUB: " << message.error().message());
++      }
+ 
+       if (!pub || sockets[2].revents)
+       {
+@@ -162,8 +171,15 @@ void ZmqServer::serve()
+         if (!message)
+         {
+           // EAGAIN can occur when using `zmq_poll`, which doesn't inspect for message validity
+-          if (message != net::zmq::make_error_code(EAGAIN))
+-            MONERO_THROW(message.error(), "Read failure on ZMQ-RPC");
++          if (message == net::zmq::make_error_code(EMSGSIZE))
++          {
++            MERROR("ZMQ-RPC request exceeds maximum message size");
++            MONERO_UNWRAP(net::zmq::send(REQUEST_TOO_LARGE(), rep.get()));
++          }
++          else if (message == net::zmq::make_error_code(ETERM))
++            MONERO_THROW(message.error(), "ZMQ-RPC context terminated");
++          else if (message != net::zmq::make_error_code(EAGAIN))
++            MERROR("Read failure on ZMQ-RPC: " << message.error().message());
+         }
+         else // no errors
+         {
+diff --git a/src/serialization/binary_archive.h b/src/serialization/binary_archive.h
+index f098291..975209f 100644
+--- a/src/serialization/binary_archive.h
++++ b/src/serialization/binary_archive.h
+@@ -145,7 +145,7 @@ struct binary_archive<false> : public binary_archive_base<false>
+   {
+     auto current = bytes_.cbegin();
+     auto end = bytes_.cend();
+-    good_ &= (0 <= tools::read_varint(current, end, v));
++    good_ &= (1 <= tools::read_varint(current, end, v));
+     current = std::min(current, bytes_.cend());
+     bytes_ = {current, std::size_t(bytes_.cend() - current)};
+   }
+diff --git a/src/wallet/wallet2.cpp b/src/wallet/wallet2.cpp
+index 87bdfcb..f58b553 100644
+--- a/src/wallet/wallet2.cpp
++++ b/src/wallet/wallet2.cpp
+@@ -139,6 +139,8 @@ using namespace cryptonote;
+ 
+ #define FIRST_REFRESH_GRANULARITY     1024
+ 
++#define MAX_HASH_PULLS_PER_REFRESH    3 // hash pulls per bounded refresh call, so single-threaded callers stay responsive
++
+ #define GAMMA_SHAPE 19.28
+ #define GAMMA_SCALE (1/1.61)
+ 
+@@ -1020,6 +1022,7 @@ gamma_picker::gamma_picker(const std::vector<uint64_t> &rct_offsets, double shap
+   end = rct_offsets.data() + rct_offsets.size() - (std::max(1, CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE) - 1);
+   num_rct_outputs = *(end - 1);
+   THROW_WALLET_EXCEPTION_IF(num_rct_outputs == 0, error::wallet_internal_error, "No rct outputs");
++  THROW_WALLET_EXCEPTION_IF(outputs_to_consider == 0, error::wallet_internal_error, "No outputs in consideration window");
+   average_output_time = DIFFICULTY_TARGET_V2 * blocks_to_consider / static_cast<double>(outputs_to_consider); // this assumes constant target over the whole rct range
+ };
+ 
+@@ -2734,6 +2737,9 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
+     auto it = m_key_images.find(in_to_key.k_image);
+     if(it != m_key_images.end())
+     {
++      THROW_WALLET_EXCEPTION_IF(it->second >= m_transfers.size(), error::wallet_internal_error,
++          std::string("Key images cache contains illegal transfer offset: ") + std::to_string(it->second)
++          + " m_transfers.size() = " + std::to_string(m_transfers.size()));
+       transfer_details& td = m_transfers[it->second];
+       uint64_t amount = in_to_key.amount;
+       if (amount > 0)
+@@ -3940,9 +3946,10 @@ void wallet2::process_pool_state(const std::vector<std::tuple<cryptonote::transa
+   MTRACE("process_pool_state end");
+ }
+ //----------------------------------------------------------------------------------------------------
+-void wallet2::fast_refresh(uint64_t stop_height, uint64_t &blocks_start_height, std::list<crypto::hash> &short_chain_history, bool force)
++bool wallet2::fast_refresh(uint64_t stop_height, uint64_t &blocks_start_height, std::list<crypto::hash> &short_chain_history, bool force, uint64_t max_pulls)
+ {
+   std::vector<crypto::hash> hashes;
++  uint64_t num_pulls = 0;
+ 
+   const uint64_t checkpoint_height = m_checkpoints.get_max_height();
+   if ((stop_height > checkpoint_height && m_blockchain.size()-1 < checkpoint_height) && !force)
+@@ -3960,13 +3967,15 @@ void wallet2::fast_refresh(uint64_t stop_height, uint64_t &blocks_start_height,
+   size_t current_index = m_blockchain.size();
+   while(m_run.load(std::memory_order_relaxed) && current_index < stop_height)
+   {
++    if (max_pulls > 0 && num_pulls++ >= max_pulls)
++      return false; // pull budget reached, caller may resume on a later call
+     pull_hashes(0, blocks_start_height, short_chain_history, hashes);
+     if (hashes.size() <= 3)
+-      return;
++      return true;
+     if (blocks_start_height < m_blockchain.offset())
+     {
+       MERROR("Blocks start before blockchain offset: " << blocks_start_height << " " << m_blockchain.offset());
+-      return;
++      return true;
+     }
+     current_index = blocks_start_height;
+     if (hashes.size() + current_index < stop_height) {
+@@ -3995,13 +4004,14 @@ void wallet2::fast_refresh(uint64_t stop_height, uint64_t &blocks_start_height,
+       else if(bl_id != m_blockchain[current_index])
+       {
+         //split detected here !!!
+-        return;
++        return true;
+       }
+       ++current_index;
+       if (current_index >= stop_height)
+-        return;
++        return true;
+     }
+   }
++  return true;
+ }
+ 
+ 
+@@ -4094,7 +4104,14 @@ void wallet2::refresh(bool trusted_daemon, uint64_t start_height, uint64_t & blo
+     if (!start_height)
+       start_height = std::max(m_refresh_from_block_height, m_skip_to_height);;
+     // we can shortcut by only pulling hashes up to the start_height
+-    fast_refresh(start_height, blocks_start_height, short_chain_history);
++    const uint64_t pre_hashes_height = m_blockchain.size();
++    const uint64_t max_pulls = max_blocks == std::numeric_limits<uint64_t>::max() ? 0 : MAX_HASH_PULLS_PER_REFRESH;
++    if (!fast_refresh(start_height, blocks_start_height, short_chain_history, false, max_pulls))
++    {
++      // pull budget reached before start_height, report hashes added and resume on next call
++      blocks_fetched = m_blockchain.size() - pre_hashes_height;
++      return;
++    }
+     // regenerate the history now that we've got a full set of hashes
+     short_chain_history.clear();
+     get_short_chain_history(short_chain_history, (m_first_refresh_done || trusted_daemon) ? 1 : FIRST_REFRESH_GRANULARITY);
+@@ -4157,6 +4174,7 @@ void wallet2::refresh(bool trusted_daemon, uint64_t start_height, uint64_t & blo
+         }
+         catch (const tools::error::out_of_hashchain_bounds_error&)
+         {
++          waiter.wait();
+           MINFO("Daemon claims next refresh block is out of hash chain bounds, resetting hash chain");
+           uint64_t stop_height = m_blockchain.offset();
+           std::vector<crypto::hash> tip(m_blockchain.size() - m_blockchain.offset());
+@@ -4180,6 +4198,7 @@ void wallet2::refresh(bool trusted_daemon, uint64_t start_height, uint64_t & blo
+         }
+         catch (const std::exception &e)
+         {
++          waiter.wait();
+           MERROR("Error parsing blocks: " << e.what());
+           exception = std::current_exception();
+           error = true;
+@@ -4322,7 +4341,7 @@ bool wallet2::get_rct_distribution(const std::string rct_asset_type, uint64_t &s
+   {
+     const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+     r = net_utils::invoke_http_bin("/get_output_distribution.bin", req, res, *m_http_client, rpc_timeout);
+-    THROW_ON_RPC_RESPONSE_ERROR_GENERIC(r, {}, res, "/get_output_distribution.bin");
++    THROW_ON_RPC_RESPONSE_ERROR(r, {}, res, "/get_output_distribution.bin", error::wallet_generic_rpc_error, "/get_output_distribution.bin", get_rpc_status(res.status));
+   }
+   catch(...)
+   {
+@@ -6341,6 +6360,14 @@ void wallet2::load(const std::string& wallet_, const epee::wipeable_string& pass
+         ar >> *this;
+       }
+     }
++    for (const auto &key_image : m_key_images)
++      THROW_WALLET_EXCEPTION_IF(key_image.second >= m_transfers.size(), error::wallet_internal_error,
++          std::string("Key images cache contains illegal transfer offset: ") + std::to_string(key_image.second)
++          + " m_transfers.size() = " + std::to_string(m_transfers.size()));
++    for (const auto &pub_key : m_pub_keys)
++      THROW_WALLET_EXCEPTION_IF(pub_key.second >= m_transfers.size(), error::wallet_internal_error,
++          std::string("Public keys cache contains illegal transfer offset: ") + std::to_string(pub_key.second)
++          + " m_transfers.size() = " + std::to_string(m_transfers.size()));
+     THROW_WALLET_EXCEPTION_IF(
+       m_account_public_address.m_spend_public_key != m_account.get_keys().m_account_address.m_spend_public_key ||
+       m_account_public_address.m_view_public_key  != m_account.get_keys().m_account_address.m_view_public_key,
+@@ -6417,7 +6444,8 @@ void wallet2::trim_hashchain()
+       if (m_node_rpc_proxy.get_block_header_by_height(m_blockchain.size() - 1, block_header))
+         throw std::runtime_error("Failed to request block header by height");
+       crypto::hash hash;
+-      epee::string_tools::hex_to_pod(block_header.hash, hash);
++      THROW_WALLET_EXCEPTION_IF(!epee::string_tools::hex_to_pod(block_header.hash, hash),
++        error::wallet_internal_error, "Daemon returned an invalid block hash");
+       m_blockchain.refill(hash);
+     }
+     catch(...)
+@@ -8772,6 +8800,8 @@ void wallet2::get_outs(std::vector<std::vector<tools::wallet2::get_outs_entry>>
+     // check we're clear enough of rct start, to avoid corner cases below
+     THROW_WALLET_EXCEPTION_IF(rct_offsets.size() < std::max(1, CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE),
+         error::get_output_distribution, "Not enough rct outputs");
++      THROW_WALLET_EXCEPTION_IF(!std::is_sorted(rct_offsets.begin(), rct_offsets.end()),
++          error::get_output_distribution, "Daemon reports non-monotonic rct output distribution");
+     THROW_WALLET_EXCEPTION_IF(rct_offsets.back() <= max_rct_index,
+         error::get_output_distribution, "Daemon reports suspicious number of rct outputs");
+     
+@@ -11737,7 +11767,7 @@ std::vector<size_t> wallet2::select_available_outputs_from_histogram(uint64_t co
+   {
+     const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+     bool r = net_utils::invoke_http_json_rpc("/json_rpc", "get_output_histogram", req_t, resp_t, *m_http_client, rpc_timeout);
+-    THROW_ON_RPC_RESPONSE_ERROR(r, {}, resp_t, "get_output_histogram", error::get_histogram_error, resp_t.status);
++    THROW_ON_RPC_RESPONSE_ERROR(r, {}, resp_t, "get_output_histogram", error::get_histogram_error, get_rpc_status(resp_t.status));
+   }
+ 
+   std::set<uint64_t> mixable;
+@@ -11952,7 +11982,7 @@ void wallet2::set_tx_key(const crypto::hash &txid, const crypto::secret_key &tx_
+   {
+     const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+     r = epee::net_utils::invoke_http_json("/gettransactions", req, res, *m_http_client, rpc_timeout);
+-    THROW_ON_RPC_RESPONSE_ERROR_GENERIC(r, {}, res, "/gettransactions");
++    THROW_ON_RPC_RESPONSE_ERROR(r, {}, res, "/gettransactions", error::wallet_generic_rpc_error, "/gettransactions", get_rpc_status(res.status));
+     THROW_WALLET_EXCEPTION_IF(res.txs.size() != 1, error::wallet_internal_error,
+       "daemon returned wrong response for gettransactions, wrong txs count = " +
+       std::to_string(res.txs.size()) + ", expected 1");
+@@ -12011,7 +12041,7 @@ std::string wallet2::get_spend_proof(const crypto::hash &txid, const std::string
+   {
+     const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+     r = epee::net_utils::invoke_http_json("/gettransactions", req, res, *m_http_client, rpc_timeout);
+-    THROW_ON_RPC_RESPONSE_ERROR_GENERIC(r, {}, res, "gettransactions");
++    THROW_ON_RPC_RESPONSE_ERROR(r, {}, res, "gettransactions", error::wallet_generic_rpc_error, "gettransactions", get_rpc_status(res.status));
+     THROW_WALLET_EXCEPTION_IF(res.txs.size() != 1, error::wallet_internal_error,
+       "daemon returned wrong response for gettransactions, wrong txs count = " +
+       std::to_string(res.txs.size()) + ", expected 1");
+@@ -12044,6 +12074,9 @@ std::string wallet2::get_spend_proof(const crypto::hash &txid, const std::string
+     }
+ 
+     // derive the real output keypair
++    THROW_WALLET_EXCEPTION_IF(found->second >= m_transfers.size(), error::wallet_internal_error,
++        std::string("Key images cache contains illegal transfer offset: ") + std::to_string(found->second)
++        + " m_transfers.size() = " + std::to_string(m_transfers.size()));
+     const transfer_details& in_td = m_transfers[found->second];
+     crypto::public_key in_tx_out_pkey = in_td.get_public_key();
+     const crypto::public_key in_tx_pub_key = get_tx_pub_key_from_extra(in_td.m_tx, in_td.m_pk_index);
+@@ -12124,7 +12157,7 @@ bool wallet2::check_spend_proof(const crypto::hash &txid, const std::string &mes
+   {
+     const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+     r = epee::net_utils::invoke_http_json("/gettransactions", req, res, *m_http_client, rpc_timeout);
+-    THROW_ON_RPC_RESPONSE_ERROR_GENERIC(r, {}, res, "gettransactions");
++    THROW_ON_RPC_RESPONSE_ERROR(r, {}, res, "gettransactions", error::wallet_generic_rpc_error, "gettransactions", get_rpc_status(res.status));
+     THROW_WALLET_EXCEPTION_IF(res.txs.size() != 1, error::wallet_internal_error,
+       "daemon returned wrong response for gettransactions, wrong txs count = " +
+       std::to_string(res.txs.size()) + ", expected 1");
+@@ -12350,6 +12383,8 @@ bool wallet2::is_out_to_acc(const cryptonote::account_public_address &address, c
+ 
+   if (!found && !additional_derivations.empty())
+   {
++    THROW_WALLET_EXCEPTION_IF(output_index >= additional_derivations.size(), error::wallet_internal_error,
++      "wrong number of additional derivations");
+     const crypto::key_derivation &additional_derivation = additional_derivations[output_index];
+     if (out_can_be_to_acc(view_tag_opt, additional_derivation, output_index))
+     {
+@@ -15178,7 +15213,7 @@ std::vector<cryptonote::public_node> wallet2::get_public_nodes(bool white_only)
+   {
+     const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+     bool r = epee::net_utils::invoke_http_json("/get_public_nodes", req, res, *m_http_client, rpc_timeout);
+-    THROW_ON_RPC_RESPONSE_ERROR_GENERIC(r, {}, res, "/get_public_nodes");
++    THROW_ON_RPC_RESPONSE_ERROR(r, {}, res, "/get_public_nodes", error::wallet_generic_rpc_error, "/get_public_nodes", get_rpc_status(res.status));
+   }
+ 
+   std::vector<cryptonote::public_node> nodes;
+diff --git a/src/wallet/wallet2.h b/src/wallet/wallet2.h
+index 5367268..c195066 100644
+--- a/src/wallet/wallet2.h
++++ b/src/wallet/wallet2.h
+@@ -1786,7 +1786,7 @@ private:
+     void clear_soft(bool keep_key_images=false);
+     void pull_blocks(bool first, bool try_incremental, uint64_t start_height, uint64_t& blocks_start_height, const std::list<crypto::hash> &short_chain_history, std::vector<cryptonote::block_complete_entry> &blocks, std::vector<cryptonote::COMMAND_RPC_GET_BLOCKS_FAST::block_output_indices> &o_indices, std::vector<cryptonote::COMMAND_RPC_GET_BLOCKS_FAST::block_asset_type_output_indices> &asset_type_output_indices, uint64_t &current_height, std::vector<std::tuple<cryptonote::transaction, crypto::hash, bool>>& process_pool_txs);
+     void pull_hashes(uint64_t start_height, uint64_t& blocks_start_height, const std::list<crypto::hash> &short_chain_history, std::vector<crypto::hash> &hashes);
+-    void fast_refresh(uint64_t stop_height, uint64_t &blocks_start_height, std::list<crypto::hash> &short_chain_history, bool force = false);
++    bool fast_refresh(uint64_t stop_height, uint64_t &blocks_start_height, std::list<crypto::hash> &short_chain_history, bool force = false, uint64_t max_pulls = 0);
+     void pull_and_parse_next_blocks(bool first, bool try_incremental, uint64_t start_height, uint64_t &blocks_start_height, std::list<crypto::hash> &short_chain_history, const std::vector<cryptonote::block_complete_entry> &prev_blocks, const std::vector<parsed_block> &prev_parsed_blocks, std::vector<cryptonote::block_complete_entry> &blocks, std::vector<parsed_block> &parsed_blocks, std::vector<std::tuple<cryptonote::transaction, crypto::hash, bool>>& process_pool_txs, bool &last, bool &error, std::exception_ptr &exception);
+     void process_parsed_blocks(uint64_t start_height, const std::vector<cryptonote::block_complete_entry> &blocks, const std::vector<parsed_block> &parsed_blocks, uint64_t& blocks_added, std::map<std::pair<uint64_t, uint64_t>, size_t> *output_tracker_cache = NULL);
+     bool accept_pool_tx_for_processing(const crypto::hash &txid);
+diff --git a/tests/unit_tests/output_selection.cpp b/tests/unit_tests/output_selection.cpp
+index ea6745f..3139800 100644
+--- a/tests/unit_tests/output_selection.cpp
++++ b/tests/unit_tests/output_selection.cpp
+@@ -261,16 +261,22 @@ TEST(select_outputs, exact_unlock_block)
+ 
+ TEST(select_outputs, exact_unlock_block_tiny)
+ {
+-  // Create chain of length CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE where there is one output in block 0
+-  std::vector<uint64_t> offsets(std::max(CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE, 1), 0);
+-  offsets[0] = 1;
++  // Create a chain of length CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE with one
++  // output in block 0. Since rct_offsets is cumulative, later blocks retain
++  // that output even though they contain no additional outputs.
++  std::vector<uint64_t> offsets(std::max(CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE, 1), 1);
+   tools::gamma_picker picker(offsets);
+ 
+-  constexpr size_t MAX_PICK_TRIES = 10;
++  constexpr size_t MAX_PICK_TRIES = 1000;
+   bool found_the_one_output = false;
+   for (size_t i = 0; i < MAX_PICK_TRIES; ++i)
++  {
+     if (picker.pick() == 0)
++    {
+       found_the_one_output = true;
++      break;
++    }
++  }
+ 
+   EXPECT_TRUE(found_the_one_output);
+ }
