@@ -27,6 +27,10 @@ typedef struct zios_wallet zios_wallet;
  * The app refuses to open wallets when ok is false. */
 char* zios_selftest(int verbose);
 
+/* Diagnostic of the keys-file round trip with a throwaway account (no user data): JSON of
+ * equal / not equal per step. For tests only. */
+char* zios_diag_keys(void);
+
 /* Version of the engine and of the pinned sources it was built from (static string). */
 const char* zios_version(void);
 

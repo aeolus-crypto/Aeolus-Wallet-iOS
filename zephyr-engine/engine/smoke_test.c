@@ -75,6 +75,7 @@ static int make_fixture(const char* dir) {
 }
 
 int main(int argc, char** argv) {
+  setvbuf(stdout, NULL, _IONBF, 0);   /* nothing lost if the process crashes */
   if (argc == 3 && strcmp(argv[1], "--make-fixture") == 0) return make_fixture(argv[2]);
   const char* dir = argc > 1 ? argv[1] : "/tmp";
   const char* fixture = argc > 2 && argv[2][0] ? argv[2] : NULL;
@@ -96,6 +97,12 @@ int main(int argc, char** argv) {
     check(st && strstr(st, "\"ok\":true") != NULL, "slow-hash known answers", NULL);
     printf("      %s\n", st ? st : "(null)");
     zios_free(st);
+  }
+  {
+    char* dg = zios_diag_keys();
+    check(dg && strstr(dg, "false") == NULL && strstr(dg, "exception") == NULL, "keys round trip diagnostic", NULL);
+    printf("      %s\n", dg ? dg : "(null)");
+    zios_free(dg);
   }
   char* err = NULL;
 
