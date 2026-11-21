@@ -1,20 +1,21 @@
-From 08d655e16047aa3430d31b302db96cfa723f2fc1 Mon Sep 17 00:00:00 2001
+From 9c208d2bf3233509e67176391457275309af0730 Mon Sep 17 00:00:00 2001
 From: Aeolus iOS build <noreply@aeolus.invalid>
 Date: Sat, 21 Nov 2026 11:12:26 -0700
 Subject: [PATCH] iOS: depends host, boost/OpenSSL options, no IOKit on iOS
 
 Adds an iOS host to contrib/depends (built on macOS with Xcode), backports
-boost numeric_conversion's Clang 16+ enum fix to boost 1.64, builds OpenSSL
-without async on iOS, drops the missing CmakeLists_IOS.txt include and keeps
-macOS-only IOKit code out of iOS builds.
+boost numeric_conversion's Clang 16+ enum fix to boost 1.64, removes boost
+1.64's -fcoalesce-templates (gone from current Clang) from its darwin toolset,
+builds OpenSSL without async on iOS, drops the missing CmakeLists_IOS.txt
+include and keeps macOS-only IOKit code out of iOS builds.
 
 ---
  CMakeLists.txt                      |  3 ---
  contrib/depends/hosts/ios.mk        | 41 +++++++++++++++++++++++++++++
- contrib/depends/packages/boost.mk   |  7 +++++
+ contrib/depends/packages/boost.mk   |  8 ++++++
  contrib/depends/packages/openssl.mk |  1 +
  src/cryptonote_basic/miner.cpp      | 11 +++++---
- 5 files changed, 56 insertions(+), 7 deletions(-)
+ 5 files changed, 57 insertions(+), 7 deletions(-)
  create mode 100644 contrib/depends/hosts/ios.mk
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
@@ -79,14 +80,14 @@ index 0000000..85464ef
 +
 +ios_cmake_system=iOS
 diff --git a/contrib/depends/packages/boost.mk b/contrib/depends/packages/boost.mk
-index 1b36d9d..aecb134 100644
+index 1b36d9d..92c4fd1 100644
 --- a/contrib/depends/packages/boost.mk
 +++ b/contrib/depends/packages/boost.mk
 @@ -13,6 +13,7 @@ $(package)_config_opts+=threading=multi link=static -sNO_BZIP2=1 -sNO_ZLIB=1
  $(package)_config_opts_linux=threadapi=pthread runtime-link=shared
  $(package)_config_opts_android=threadapi=pthread runtime-link=static target-os=android
  $(package)_config_opts_darwin=--toolset=darwin runtime-link=shared
-+$(package)_config_opts_ios=--toolset=darwin runtime-link=shared
++$(package)_config_opts_ios=--toolset=darwin runtime-link=shared variant=release
  $(package)_config_opts_mingw32=binary-format=pe target-os=windows threadapi=win32 runtime-link=static
  $(package)_config_opts_x86_64_mingw32=address-model=64
  $(package)_config_opts_i686_mingw32=address-model=32
@@ -99,7 +100,7 @@ index 1b36d9d..aecb134 100644
  $(package)_config_libraries_$(host_os)="chrono,filesystem,program_options,system,thread,test,date_time,regex,serialization"
  $(package)_config_libraries_mingw32="chrono,filesystem,program_options,system,thread,test,date_time,regex,serialization,locale"
  $(package)_cxxflags=-std=c++11
-@@ -32,6 +35,10 @@ define $(package)_preprocess_cmds
+@@ -32,6 +35,11 @@ define $(package)_preprocess_cmds
    patch -p1 < $($(package)_patch_dir)/fix_aroptions.patch &&\
    patch -p1 < $($(package)_patch_dir)/fix_arm_arch.patch &&\
    patch -p1 < $($(package)_patch_dir)/b2-engine-implicit-declarations.patch &&\
@@ -107,6 +108,7 @@ index 1b36d9d..aecb134 100644
 +    sed -i.old -e 's|boost/mpl/integral_c.hpp|boost/type_traits/integral_constant.hpp|' \
 +      -e 's|mpl::integral_c<|boost::integral_constant<|' boost/numeric/conversion/detail/$$$$f.hpp || exit 1; \
 +  done &&\
++  sed -i.old 's/-fcoalesce-templates//' tools/build/src/tools/darwin.jam &&\
    echo "using $(boost_toolset_$(host_os)) : : $($(package)_cxx) : <cxxflags>\"$($(package)_cxxflags) $($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$(boost_archiver_$(host_os))\" <arflags>\"$($(package)_arflags)\" <striper>\"$(host_STRIP)\"  <ranlib>\"$(host_RANLIB)\" <rc>\"$(host_WINDRES)\" : ;" > user-config.jam
  endef
  
@@ -161,7 +163,7 @@ index 3161dc3..e2c6454 100644
      	}
  
 -    #elif defined(__APPLE__) 
-+    #elif defined(__APPLE__) && !TARGET_OS_IPHONE 
++    #elif defined(__APPLE__) && !TARGET_OS_IPHONE
        
        #if TARGET_OS_MAC && (!defined(MAC_OS_X_VERSION_MIN_REQUIRED) || MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
          return boost::logic::tribool(IOPSGetTimeRemainingEstimate() != kIOPSTimeRemainingUnlimited);
