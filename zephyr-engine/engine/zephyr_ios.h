@@ -13,6 +13,7 @@
 #ifndef ZEPHYR_IOS_H
 #define ZEPHYR_IOS_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -26,6 +27,15 @@ const char* zios_version(void);
 
 void zios_free(char* s);
 
+/* Frees a byte buffer returned by this library after overwriting its len bytes with zeros. */
+void zios_free_bytes(uint8_t* p, size_t len);
+
+/* Core logging (wallet2 and friends). Off unless configured: path is a log file base path or
+ * NULL/"" for none; console != 0 also logs to stdout. Level 0 (errors) .. 4 (trace). Never
+ * enable above 0 in a release build: the core can log transaction details at higher levels. */
+void zios_configure_logging(const char* path, int console);
+void zios_set_log_level(int level);
+
 /* Creates a wallet from a zephyr-cpp monero_wallet_config JSON object, the same JSON that
  * zephyr-java's ZephyrWalletFull.createWallet passes to the core: path, password,
  * networkType (0 mainnet, 1 testnet, 2 stagenet), language, mnemonic, seedOffset,
@@ -34,6 +44,17 @@ zios_wallet* zios_wallet_create(const char* config_json, char** err);
 
 /* Opens a wallet's files at path (path and path.keys). */
 zios_wallet* zios_wallet_open(const char* path, const char* password, int network_type, char** err);
+
+/* Opens a wallet from in-memory keys and cache data (as returned by zios_wallet_get_data). */
+zios_wallet* zios_wallet_open_data(const char* password, int network_type,
+                                   const uint8_t* keys, size_t keys_len,
+                                   const uint8_t* cache, size_t cache_len, char** err);
+
+/* Returns the wallet's keys data (encrypted with password) and cache data, as the files would
+ * hold them. Free both with zios_free_bytes. Returns 0, or -1 on failure. */
+int zios_wallet_get_data(zios_wallet* w, const char* password,
+                         uint8_t** keys, size_t* keys_len,
+                         uint8_t** cache, size_t* cache_len, char** err);
 
 char* zios_wallet_primary_address(zios_wallet* w, char** err);
 char* zios_wallet_mnemonic(zios_wallet* w, char** err);

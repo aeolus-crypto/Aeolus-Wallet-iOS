@@ -9,6 +9,7 @@
 #include <string>
 
 #include "wallet/monero_wallet_full.h"
+#include "misc_log_ex.h"
 
 #if defined(__APPLE__)
 #include <libkern/OSCacheControl.h>
@@ -21,10 +22,22 @@
 using namespace monero;
 
 struct zios_wallet {
-  monero_wallet* w;
+  monero_wallet_full* w;
 };
 
 namespace {
+
+uint8_t* dup_bytes(const std::string& s) {
+  uint8_t* p = static_cast<uint8_t*>(std::malloc(s.size() ? s.size() : 1));
+  if (!p) throw std::bad_alloc();
+  if (!s.empty()) std::memcpy(p, s.data(), s.size());
+  return p;
+}
+
+void wipe(std::string& s) {
+  volatile char* v = &s[0];
+  for (size_t i = 0; i < s.size(); i++) v[i] = 0;
+}
 
 char* dup(const std::string& s) {
   char* p = static_cast<char*>(std::malloc(s.size() + 1));
@@ -66,11 +79,77 @@ void zios_free(char* s) {
   std::free(s);
 }
 
+void zios_free_bytes(uint8_t* p, size_t len) {
+  if (!p) return;
+  volatile uint8_t* v = p;
+  for (size_t i = 0; i < len; i++) v[i] = 0;
+  std::free(p);
+}
+
+void zios_configure_logging(const char* path, int console) {
+  try {
+    mlog_configure(path ? path : "", console != 0);
+  } catch (...) {
+  }
+}
+
+void zios_set_log_level(int level) {
+  try {
+    mlog_set_log_level(level);
+  } catch (...) {
+  }
+}
+
+zios_wallet* zios_wallet_open_data(const char* password, int network_type,
+                                   const uint8_t* keys, size_t keys_len,
+                                   const uint8_t* cache, size_t cache_len, char** err) {
+  return guarded(err, static_cast<zios_wallet*>(nullptr), [&]() -> zios_wallet* {
+    if (network_type < 0 || network_type > 2) throw std::runtime_error("invalid network type");
+    if (!keys || !keys_len) throw std::runtime_error("no keys data");
+    std::string k(reinterpret_cast<const char*>(keys), keys_len);
+    std::string c(cache && cache_len ? std::string(reinterpret_cast<const char*>(cache), cache_len) : std::string());
+    monero_wallet_full* w = nullptr;
+    try {
+      w = monero_wallet_full::open_wallet_data(password ? password : "",
+                                               static_cast<monero_network_type>(network_type), k, c);
+    } catch (...) {
+      wipe(k);
+      throw;
+    }
+    wipe(k);
+    return new zios_wallet{w};
+  });
+}
+
+int zios_wallet_get_data(zios_wallet* w, const char* password,
+                         uint8_t** keys, size_t* keys_len,
+                         uint8_t** cache, size_t* cache_len, char** err) {
+  return guarded(err, -1, [&]() -> int {
+    if (!w || !w->w) throw std::runtime_error("wallet is closed");
+    if (!keys || !keys_len || !cache || !cache_len) throw std::runtime_error("null output");
+    std::string k = w->w->get_keys_file_buffer(epee::wipeable_string(password ? password : ""), false);
+    std::string c = w->w->get_cache_file_buffer();
+    uint8_t* kp = dup_bytes(k);
+    uint8_t* cp = nullptr;
+    try {
+      cp = dup_bytes(c);
+    } catch (...) {
+      zios_free_bytes(kp, k.size());
+      wipe(k);
+      throw;
+    }
+    *keys = kp; *keys_len = k.size();
+    *cache = cp; *cache_len = c.size();
+    wipe(k);
+    return 0;
+  });
+}
+
 zios_wallet* zios_wallet_create(const char* config_json, char** err) {
   return guarded(err, static_cast<zios_wallet*>(nullptr), [&]() -> zios_wallet* {
     std::shared_ptr<monero_wallet_config> config =
         monero_wallet_config::deserialize(std::string(config_json ? config_json : ""));
-    monero_wallet* w = monero_wallet_full::create_wallet(*config);
+    monero_wallet_full* w = monero_wallet_full::create_wallet(*config);
     return new zios_wallet{w};
   });
 }
@@ -78,7 +157,7 @@ zios_wallet* zios_wallet_create(const char* config_json, char** err) {
 zios_wallet* zios_wallet_open(const char* path, const char* password, int network_type, char** err) {
   return guarded(err, static_cast<zios_wallet*>(nullptr), [&]() -> zios_wallet* {
     if (network_type < 0 || network_type > 2) throw std::runtime_error("invalid network type");
-    monero_wallet* w = monero_wallet_full::open_wallet(path ? path : "", password ? password : "",
+    monero_wallet_full* w = monero_wallet_full::open_wallet(path ? path : "", password ? password : "",
                                                        static_cast<monero_network_type>(network_type));
     return new zios_wallet{w};
   });

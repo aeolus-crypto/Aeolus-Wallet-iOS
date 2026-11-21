@@ -69,6 +69,14 @@ jobs:
         if: matrix.platform == 'iphonesimulator'
         run: scripts/run_smoke_simulator.sh
 
+      - name: Upload simulator test wallets and log
+        if: always() && matrix.platform == 'iphonesimulator'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-simulator
+          path: ${{ runner.temp }}/zios-smoke
+          retention-days: 14
+
       - name: Checksums
         run: shasum -a 256 work/out/${{ matrix.platform }}/libzephyr_ios.a | tee work/out/${{ matrix.platform }}/SHA256SUMS
 
