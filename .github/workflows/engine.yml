@@ -39,7 +39,8 @@ jobs:
         run: scripts/setup_tree.sh
 
       - name: Restore dependency cache
-        uses: actions/cache@v4
+        id: depcache
+        uses: actions/cache/restore@v4
         with:
           path: |
             zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/built
@@ -48,6 +49,15 @@ jobs:
 
       - name: Dependencies (boost, OpenSSL, libsodium, unbound, expat, zeromq)
         run: scripts/build_depends.sh ${{ matrix.platform }}
+
+      - name: Save dependency cache
+        if: steps.depcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/built
+            zephyr-engine/work/myzephyr-java/external/zephyr-cpp/external/zephyr/contrib/depends/sources
+          key: ${{ steps.depcache.outputs.cache-primary-key }}
 
       - name: Zephyr wallet libraries
         run: scripts/build_zephyr.sh ${{ matrix.platform }}

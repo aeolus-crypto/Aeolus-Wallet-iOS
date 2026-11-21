@@ -24,6 +24,10 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET ${_zios_min})
 set(CMAKE_MACOSX_BUNDLE OFF)
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
 
+# boost 1.64 uses std::unary_function, std::auto_ptr and the binders, which libc++ removes in
+# C++17 mode; libc++'s documented switches keep them
+set(CMAKE_CXX_FLAGS_INIT "-D_LIBCPP_ENABLE_CXX17_REMOVED_FEATURES -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION")
+
 # what zephyr's own depends toolchain sets for a cross build
 set(STATIC ON)
 set(UNBOUND_STATIC ON)
