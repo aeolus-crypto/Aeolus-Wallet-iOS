@@ -32,6 +32,9 @@ jobs:
           cmake --version | head -1
           clang --version | head -1
 
+      - name: Build tools (autoconf for unbound and libsodium)
+        run: brew install autoconf automake libtool
+
       - name: Pinned sources
         run: scripts/setup_tree.sh
 
