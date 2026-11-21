@@ -31,7 +31,8 @@ AR="$(xcrun -f ar)"
 RANLIB="$(xcrun -f ranlib)"
 LIBTOOL="$(xcrun -f libtool)"
 # autoconf: an explicit, different --build makes configure cross-compile (no test programs run)
-BUILD_TRIPLE="$(uname -m)-apple-darwin$(uname -r)"
+# config.sub of older packages (libsodium 1.0.18) knows aarch64, not arm64
+BUILD_TRIPLE="aarch64-apple-darwin$(uname -r)"
 HOST_TRIPLE=aarch64-apple-darwin
 echo "SDK $SDK, target $TRIPLE"
 
