@@ -9,7 +9,8 @@ cmake -S "$Z" -B "$ZB" -G "Unix Makefiles" \
   -DCMAKE_TOOLCHAIN_FILE="$ROOT/cmake/ios.toolchain.cmake" \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTS=OFF -DUSE_CCACHE=OFF -DUSE_DEVICE_TREZOR=OFF \
-  -DBUILD_DOCUMENTATION=OFF -DUSE_READLINE=OFF
+  -DBUILD_DOCUMENTATION=OFF -DUSE_READLINE=OFF \
+  -DNO_AES=ON
 make -C "$ZB" -j"$NPROC" wallet cryptonote_protocol
 
 # every static library zephyr-cpp imports must exist (as in myzephyr-java's build scripts:

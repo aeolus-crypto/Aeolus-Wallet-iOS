@@ -22,6 +22,11 @@ extern "C" {
 
 typedef struct zios_wallet zios_wallet;
 
+/* Known-answer test of the core's slow hash (variants 0, 1, 2, 4; this thread twice and a new
+ * thread). {"ok":b,"failed":n,"tests":[...]} (failures always listed, all with verbose != 0).
+ * The app refuses to open wallets when ok is false. */
+char* zios_selftest(int verbose);
+
 /* Version of the engine and of the pinned sources it was built from (static string). */
 const char* zios_version(void);
 

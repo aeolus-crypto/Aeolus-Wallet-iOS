@@ -11,9 +11,14 @@ Builds the Zephyr wallet engine for iOS (arm64 devices and the arm64 iOS Simulat
 - **iOS layer** (`patches/ios/`, always on):
   - `zephyr/0001-ios-build.patch`: drop the legacy `CMakeLists_IOS.txt` include; keep macOS
     IOKit code out of iOS builds.
-  - `zephyr/0002-monero-246d76f4f-...`: Monero's fix of the ARMv8 slow-hash inline assembly.
-    Without it, Apple clang makes the wallet-password key derivation non-deterministic and no
-    saved wallet can be reopened.
+- **iOS build option** (no source change): zephyr's own `NO_AES=ON`, so the slow hash
+  (CryptoNight, which the wallet uses only to derive its keys-file, account-key and cache keys)
+  is the portable C reference code. With the ARMv8 path, Apple clang's builds returned answers
+  that changed from call to call, so the account keys of every saved wallet decrypted to garbage
+  and no wallet could be reopened ("file ... does not correspond to ... .keys", zephyr-engine
+  runs 1 and 2, 2026-11-21; Monero's 246d76f4f asm-constraint fix alone did not cure it). The
+  wallet runs the slow hash a handful of times per open, so speed does not matter here.
+  `zios_selftest()` checks the slow hash against Monero's known answers; the app runs it first.
 - **Backports layer** (`patches/backports/`, off by default): the zephyr-backports security
   fixes, for a production release if upstream has not merged them. See its README.
 
@@ -34,8 +39,9 @@ against unchanged (1.85 removes `copy_option`, used by `wallet2.cpp`; 1.87 remov
 3. `scripts/build_zephyr.sh <platform>`: zephyr's wallet libraries (Trezor off)
 4. `scripts/build_engine.sh <platform>`: zephyr-cpp + C interface, merged into `libzephyr_ios.a`;
    links the smoke test
-5. `scripts/run_smoke_simulator.sh`: offline checks in the iOS Simulator (create, memory round
-   trip, reopen, restore, wrong password, open a wallet made on Linux)
+5. `scripts/run_smoke_simulator.sh`: offline checks in the iOS Simulator (slow-hash known
+   answers, create, memory round trip, reopen, restore, wrong password, open a wallet made on
+   Linux, the wallet operations the app uses)
 
 `<platform>` is `iphoneos` or `iphonesimulator`; the last job packs both into the xcframework.
 

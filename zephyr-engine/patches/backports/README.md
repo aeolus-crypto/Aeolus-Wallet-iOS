@@ -18,7 +18,7 @@ with **backports** ticked. CI's `patch layers apply` job checks on every push th
 the iOS layer apply together.
 
 The iOS layer (`../ios/`) touches only `CMakeLists.txt` line ~48 (the legacy iOS include),
-`src/cryptonote_basic/miner.cpp` and `src/crypto/slow-hash.c`; this layer changes none of those
+and `src/cryptonote_basic/miner.cpp`; this layer changes none of those
 regions, so either can be dropped or refreshed without touching the other. When upstream merges
 any of these fixes, `setup_tree.sh` reports the patch as already applied; regenerate the files
 from the new upstream tag at that point.

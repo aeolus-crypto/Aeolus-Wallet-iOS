@@ -91,6 +91,12 @@ int main(int argc, char** argv) {
   zios_set_log_level(level);
 
   printf("%s\n", zios_version());
+  {
+    char* st = zios_selftest(1);
+    check(st && strstr(st, "\"ok\":true") != NULL, "slow-hash known answers", NULL);
+    printf("      %s\n", st ? st : "(null)");
+    zios_free(st);
+  }
   char* err = NULL;
 
   /* 1. create */
