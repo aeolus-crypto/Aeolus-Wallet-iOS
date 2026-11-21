@@ -19,6 +19,7 @@ find_package(OpenSSL REQUIRED)
 
 add_library(zephyr_engine STATIC
   zephyr_ios.cpp
+  zephyr_ios_wallet.cpp
   ${ZEPHYR_CPP}/src/utils/gen_utils.cpp
   ${ZEPHYR_CPP}/src/utils/monero_utils.cpp
   ${ZEPHYR_CPP}/src/daemon/monero_daemon_model.cpp

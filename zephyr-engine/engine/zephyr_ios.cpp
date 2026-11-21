@@ -1,4 +1,4 @@
-#include "zephyr_ios.h"
+#include "zephyr_ios_internal.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -21,10 +21,6 @@
 
 using namespace monero;
 
-struct zios_wallet {
-  monero_wallet_full* w;
-};
-
 namespace {
 
 uint8_t* dup_bytes(const std::string& s) {
@@ -39,31 +35,11 @@ void wipe(std::string& s) {
   for (size_t i = 0; i < s.size(); i++) v[i] = 0;
 }
 
-char* dup(const std::string& s) {
-  char* p = static_cast<char*>(std::malloc(s.size() + 1));
-  if (!p) return nullptr;
-  std::memcpy(p, s.data(), s.size());
-  p[s.size()] = '\0';
-  return p;
-}
-
-void set_err(char** err, const char* msg) {
-  if (err) *err = dup(msg ? msg : "unknown error");
-}
-
-template <typename R, typename F>
-R guarded(char** err, R fail, F f) {
-  try {
-    return f();
-  } catch (const std::exception& e) {
-    set_err(err, e.what());
-  } catch (...) {
-    set_err(err, "unknown native error");
-  }
-  return fail;
-}
-
 }  // namespace
+
+using zios::dup;
+using zios::guarded;
+using zios::set_err;
 
 extern "C" {
 
@@ -117,7 +93,7 @@ zios_wallet* zios_wallet_open_data(const char* password, int network_type,
       throw;
     }
     wipe(k);
-    return new zios_wallet{w};
+    { zios_wallet* h = new zios_wallet(); h->w = w; return h; }
   });
 }
 
@@ -150,7 +126,7 @@ zios_wallet* zios_wallet_create(const char* config_json, char** err) {
     std::shared_ptr<monero_wallet_config> config =
         monero_wallet_config::deserialize(std::string(config_json ? config_json : ""));
     monero_wallet_full* w = monero_wallet_full::create_wallet(*config);
-    return new zios_wallet{w};
+    { zios_wallet* h = new zios_wallet(); h->w = w; return h; }
   });
 }
 
@@ -159,7 +135,7 @@ zios_wallet* zios_wallet_open(const char* path, const char* password, int networ
     if (network_type < 0 || network_type > 2) throw std::runtime_error("invalid network type");
     monero_wallet_full* w = monero_wallet_full::open_wallet(path ? path : "", password ? password : "",
                                                        static_cast<monero_network_type>(network_type));
-    return new zios_wallet{w};
+    { zios_wallet* h = new zios_wallet(); h->w = w; return h; }
   });
 }
 
@@ -187,6 +163,8 @@ int zios_wallet_close(zios_wallet* w, int save, char** err) {
     return 0;
   });
   delete w->w;
+  w->w = nullptr;
+  w->listener.reset();
   delete w;
   return rc;
 }

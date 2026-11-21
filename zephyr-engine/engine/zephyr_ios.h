@@ -63,6 +63,62 @@ char* zios_wallet_mnemonic(zios_wallet* w, char** err);
  * (the wallet is freed either way). */
 int zios_wallet_close(zios_wallet* w, int save, char** err);
 
+
+/* ---------------------------------------------------------------- wallet operations
+ * Everything below mirrors what Aeolus' Android plugin does with zephyr-java, with the results
+ * shaped exactly like that plugin's (amounts as decimal strings of atomic units). JSON results
+ * are UTF-8 strings to free with zios_free. */
+
+/* Listener: callbacks arrive on the thread that runs zios_wallet_sync (or the core's own
+ * threads). They must return quickly and must not call into the wallet. */
+typedef struct {
+  void* ctx;
+  void (*on_progress)(void* ctx, uint64_t height, uint64_t start_height, uint64_t end_height, double percent);
+  void (*on_balances)(void* ctx, const char* balance, const char* unlocked, const char* asset);
+  /* spent = 0 received, 1 spent; height = -1 when unknown (pool); txid may be NULL */
+  void (*on_output)(void* ctx, int spent, int64_t height, const char* txid);
+} zios_listener;
+
+/* Replaces the wallet's listener (NULL removes it). Only call while no sync runs. */
+int zios_wallet_set_listener(zios_wallet* w, const zios_listener* l, char** err);
+
+/* Node connection; uri NULL or "" disconnects. The caller checks the host allowlist. */
+int zios_wallet_set_daemon(zios_wallet* w, const char* uri, const char* user, const char* pass, char** err);
+
+/* Syncs from the wallet's own height. {"fetched":n,"receivedMoney":b,"height":n,
+ * "daemonHeight":n,"daemonSynced":b}; heights are omitted when the node is unreachable. */
+char* zios_wallet_sync(zios_wallet* w, char** err);
+
+/* Interrupts a running sync. The ONE call that may run on another thread during a sync. */
+void zios_wallet_stop_syncing(zios_wallet* w);
+
+/* {"address","viewKey","viewOnly":b,"restoreHeight":n,"height":n} */
+char* zios_wallet_info(zios_wallet* w, char** err);
+
+/* Ensures at least min_count subaddresses of account 0 exist, then makes one more with label:
+ * {"index":n,"address":"..."} */
+char* zios_wallet_create_subaddress(zios_wallet* w, const char* label, int min_count, char** err);
+
+/* {"total":{ZPH,ZSD,ZRS,ZYS},"unlocked":{...}} */
+char* zios_wallet_balances(zios_wallet* w, char** err);
+
+/* {"txs":[{hash,height|null,fee,timestamp,confirmations,confirmed,inPool,failed,locked,
+ *          out:{asset,amount}|absent,in:[{asset,amount}]}]} */
+char* zios_wallet_tx_history(zios_wallet* w, char** err);
+
+/* {"reserveRatio","reserveRatioMa","numStables","numReserves","hfVersion":n} */
+char* zios_wallet_reserve_info(zios_wallet* w, char** err);
+
+/* Builds, signs and (relay:true) broadcasts. In: the page's JSON {accountIndex,
+ * destinations:[{address,amount(atomic string)}], sourceCurrency, destinationCurrency, relay,
+ * subaddressIndices?}. Out: {"txs":[{hash,fee}]} (never the signed transaction itself).
+ * The caller enforces the send PIN before calling. */
+char* zios_wallet_create_txs(zios_wallet* w, const char* page_json, char** err);
+
+/* Full address check (base58, network prefix, Keccak checksum). 1 valid, 0 invalid with
+ * *reason set (free with zios_free). */
+int zios_validate_address(const char* address, int network_type, char** reason);
+
 #ifdef __cplusplus
 }
 #endif
