@@ -1,0 +1,43 @@
+name: Publish test build
+
+# Copies the unsigned .ipa of a green "iOS build" run to the "test-build" pre-release, so it can
+# be downloaded with a plain link (no GitHub sign-in): .../releases/download/test-build/Aeolus-unsigned.ipa
+on:
+  workflow_run:
+    workflows: ["iOS build"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run id of a green "iOS build" run'
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aeolus-unsigned-ipa
+          run-id: ${{ inputs.run_id || github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ipa
+      - name: Publish to the test-build pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+        run: |
+          ls -l ipa
+          SHA="$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID --jq .head_sha)"
+          NOTES="Unsigned test build of Aeolus for iOS, from commit ${SHA::7} (build run $RUN_ID).
+          Sideload with Impactor and a free Apple ID. TEST BUILD: small amounts only, keep your seed phrase.
+          SHA-256: $(cut -d' ' -f1 ipa/SHA256SUMS)"
+          gh release delete test-build --repo ${{ github.repository }} --cleanup-tag --yes 2>/dev/null || true
+          gh release create test-build ipa/Aeolus-unsigned.ipa ipa/SHA256SUMS --repo ${{ github.repository }} \
+            --prerelease --target "$SHA" --title "Aeolus iOS test build (${SHA::7})" --notes "$NOTES"
