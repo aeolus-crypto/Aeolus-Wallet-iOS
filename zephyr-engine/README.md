@@ -11,6 +11,10 @@ Builds the Zephyr wallet engine for iOS (arm64 devices and the arm64 iOS Simulat
 - **iOS layer** (`patches/ios/`, always on):
   - `zephyr/0001-ios-build.patch`: drop the legacy `CMakeLists_IOS.txt` include; keep macOS
     IOKit code out of iOS builds.
+  - `zephyr/0002-ios-randomx-no-jit.patch`: RandomX runs in its interpreter on iOS. Apps may
+    not execute generated code, so the JIT got the app killed (CODESIGNING "Invalid Page") the
+    first time a wallet was created, when wallet2 hashes the genesis block. The simulator allows
+    the JIT, so only a real device showed it (first device run, 2026-11-21).
 - **iOS build option** (no source change): zephyr's own `NO_AES=ON`, so the slow hash
   (CryptoNight, which the wallet uses only to derive its keys-file, account-key and cache keys)
   is the portable C reference code. With the ARMv8 path, Apple clang's builds returned answers
