@@ -179,7 +179,12 @@ jobs:
             -sdk ${{ matrix.sdk }} -destination "$DEST" -derivedDataPath "$RUNNER_TEMP/dd" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build | tee "$RUNNER_TEMP/xcodebuild.log" | grep -E "error:|warning: .*AeolusNative|BUILD (SUCCEEDED|FAILED)" || true
-          test -d "$RUNNER_TEMP/dd/Build/Products/Release-${{ matrix.sdk }}/App.app"
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-${{ matrix.sdk }}/App.app"
+          ls -la "$APP" | head -40
+          plutil -p "$APP/Info.plist" || true
+          BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || true)"
+          echo "bundle id: '$BID'"
+          if [ "$BID" != com.aeolus.wallet ]; then tail -80 "$RUNNER_TEMP/xcodebuild.log"; exit 1; fi
       - name: Unsigned .ipa for sideloading
         if: matrix.sdk == 'iphoneos'
         run: |
