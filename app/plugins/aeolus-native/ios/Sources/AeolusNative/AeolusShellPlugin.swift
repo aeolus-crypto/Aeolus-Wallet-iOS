@@ -34,8 +34,11 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
         let script = WKUserScript(source: Self.pageScript(bioAvailable: Biometric.available, bioEnabled: Biometric.enabled),
                                   injectionTime: .atDocumentStart, forMainFrameOnly: true)
         ucc.addUserScript(script)
+        let layout = WKUserScript(source: Self.safeAreaScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        ucc.addUserScript(layout)
         // in case the first page load had already begun when the plugin loaded
         web.evaluateJavaScript(script.source, completionHandler: nil)
+        web.evaluateJavaScript(layout.source, completionHandler: nil)
 
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
@@ -67,6 +70,31 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
         })();
         """
     }
+
+    /// Keeps the page clear of the notch / Dynamic Island and the home indicator. The web view
+    /// is edge to edge on iOS (Android lays the page out below its status bar instead), so the
+    /// page opts in to the safe-area insets and every full-screen layer stays inside them:
+    /// pages start below the notch and end above the home bar; the bottom tab bar keeps its
+    /// background under the home bar. index.html itself stays the same as on Android.
+    private static let safeAreaScript = """
+        (function(){
+          if (document.getElementById('aeolus-ios-safe-area')) return;
+          var m = document.querySelector('meta[name=viewport]');
+          if (m && m.content.indexOf('viewport-fit') < 0) m.content += ',viewport-fit=cover';
+          var t = 'env(safe-area-inset-top)', b = 'env(safe-area-inset-bottom)';
+          var s = document.createElement('style');
+          s.id = 'aeolus-ios-safe-area';
+          s.textContent =
+            'html,body{background:#080B14}' +
+            '#app{max-width:100%;max-height:none}' +
+            '.page{top:' + t + ';bottom:' + b + '}' +
+            '#bnav{padding-bottom:calc(8px + ' + b + ')}' +
+            '#page-home,#page-history,#page-settings,#page-node,#page-swap{bottom:0;padding-bottom:calc(56px + ' + b + ')}' +
+            '#send-confirm-modal{padding-top:calc(24px + ' + t + ') !important;padding-bottom:calc(24px + ' + b + ') !important}' +
+            '#qr-scanner-modal,#wipe-confirm-modal,#cam-perm-modal{padding-top:' + t + ' !important;padding-bottom:' + b + ' !important}';
+          (document.head || document.documentElement).appendChild(s);
+        })();
+        """
 
     fileprivate func handle(_ message: WKScriptMessage) {
         // Only the app's own page, in the main frame.
