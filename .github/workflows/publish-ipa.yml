@@ -22,6 +22,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: distribution
       - uses: actions/download-artifact@v4
         with:
           name: Aeolus-unsigned-ipa
@@ -36,8 +39,12 @@ jobs:
           ls -l ipa
           SHA="$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID --jq .head_sha)"
           NOTES="Unsigned test build of Aeolus for iOS, from commit ${SHA::7} (build run $RUN_ID).
-          Sideload with Impactor and a free Apple ID. TEST BUILD: small amounts only, keep your seed phrase.
+          Sideload with iLoader / Impactor, or add source.json to SideStore (refreshes on the phone). TEST BUILD: small amounts only, keep your seed phrase.
           SHA-256: $(cut -d' ' -f1 ipa/SHA256SUMS)"
+          # SideStore / AltStore source: add .../releases/download/test-build/source.json in SideStore
+          python3 -I distribution/make_source.py ipa/Aeolus-unsigned.ipa \
+            "https://github.com/${{ github.repository }}/releases/download/test-build/Aeolus-unsigned.ipa" \
+            ipa/source.json --notes "Test build from commit ${SHA::7}. Small amounts only; keep your seed phrase."
           gh release delete test-build --repo ${{ github.repository }} --cleanup-tag --yes 2>/dev/null || true
-          gh release create test-build ipa/Aeolus-unsigned.ipa ipa/SHA256SUMS --repo ${{ github.repository }} \
+          gh release create test-build ipa/Aeolus-unsigned.ipa ipa/SHA256SUMS ipa/source.json --repo ${{ github.repository }} \
             --prerelease --target "$SHA" --title "Aeolus iOS test build (${SHA::7})" --notes "$NOTES"

@@ -1,0 +1,32 @@
+# Public anisette-v3 server for SideStore users, behind Caddy (automatic HTTPS).
+#   1. Point a domain (e.g. ani.example.com) at this machine; open ports 80 and 443.
+#   2. cp .env.example .env  and set ANISETTE_DOMAIN.
+#   3. docker compose up -d
+# SideStore users then set Settings -> Anisette server to https://<your domain>
+services:
+  anisette:
+    image: dadoum/anisette-v3-server:latest
+    restart: always
+    volumes:
+      - anisette_data:/home/Alcoholic/.config/anisette-v3/lib/
+    expose:
+      - "6969"          # reached only through Caddy, never directly from the internet
+
+  caddy:
+    image: caddy:2
+    restart: always
+    depends_on: [anisette]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - ANISETTE_DOMAIN=${ANISETTE_DOMAIN:?set ANISETTE_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  anisette_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,8 @@
+{$ANISETTE_DOMAIN} {
+	encode gzip
+	# no access logs: requests come from people's phones while they sign in to Apple
+	log {
+		output discard
+	}
+	reverse_proxy anisette:6969
+}
