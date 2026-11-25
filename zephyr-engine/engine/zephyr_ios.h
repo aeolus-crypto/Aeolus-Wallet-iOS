@@ -112,17 +112,33 @@ char* zios_wallet_create_subaddress(zios_wallet* w, const char* label, int min_c
 char* zios_wallet_balances(zios_wallet* w, char** err);
 
 /* {"txs":[{hash,height|null,fee,timestamp,confirmations,confirmed,inPool,failed,locked,
- *          out:{asset,amount}|absent,in:[{asset,amount}]}]} */
+ *          out:{asset,amount}|absent,in:[{asset,amount}]}],"viewOnly":bool} */
 char* zios_wallet_tx_history(zios_wallet* w, char** err);
 
 /* {"reserveRatio","reserveRatioMa","numStables","numReserves","hfVersion":n} */
 char* zios_wallet_reserve_info(zios_wallet* w, char** err);
 
-/* Builds, signs and (relay:true) broadcasts. In: the page's JSON {accountIndex,
- * destinations:[{address,amount(atomic string)}], sourceCurrency, destinationCurrency, relay,
- * subaddressIndices?}. Out: {"txs":[{hash,fee}]} (never the signed transaction itself).
- * The caller enforces the send PIN before calling. */
-char* zios_wallet_create_txs(zios_wallet* w, const char* page_json, char** err);
+/* Two-step send, as the Android plugin's prepareTxs / relayPrepared / discardPrepared.
+ *
+ * zios_wallet_prepare_txs builds and signs WITHOUT broadcasting and keeps the result inside the
+ * handle (replacing anything prepared before). In: the page's JSON {accountIndex,
+ * destinations:[{address,amount(atomic string)}], sourceCurrency, destinationCurrency,
+ * subaddressIndices?}; any other field (relay, fee, ...) is ignored. sweep != 0 spends all
+ * unlocked sourceCurrency to the one destination (sends only, no amount). The built transactions
+ * are checked: they must spend sourceCurrency and, for one destination, pay that address.
+ * Out: {"fee","amount","count",["minted"]} (atomic strings; minted = incoming destinationCurrency
+ * of a conversion). Refused for a view-only wallet.
+ *
+ * zios_wallet_relay_prepared broadcasts what was prepared and forgets it: {"txs":[{hash,fee}]}.
+ * The caller enforces the send PIN (and the review timeout) before calling.
+ * zios_wallet_discard_prepared forgets it without broadcasting. */
+char* zios_wallet_prepare_txs(zios_wallet* w, const char* page_json, int sweep, char** err);
+char* zios_wallet_relay_prepared(zios_wallet* w, char** err);
+void zios_wallet_discard_prepared(zios_wallet* w);
+
+/* Sets the restore height and rescans the chain from it with the stored keys (no seed needed);
+ * also discards a prepared send. Needs a daemon. {"height":n} afterwards. */
+char* zios_wallet_rescan(zios_wallet* w, uint64_t height, char** err);
 
 /* Full address check (base58, network prefix, Keccak checksum). 1 valid, 0 invalid with
  * *reason set (free with zios_free). */

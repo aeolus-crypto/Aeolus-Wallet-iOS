@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import UIKit
 import Capacitor
 import ZephyrIOS
@@ -37,7 +38,8 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         "warmUp", "open", "setDaemon", "setListener", "sync", "stopSyncing", "createKeys", "restoreKeys",
         "createSubaddress", "getPrices", "getTxHistory", "getBalances", "validateAddress", "getReserveInfo",
-        "enrollSendPin", "authorizeSend", "createTxs", "closeWallet", "wipe", "httpPost"
+        "enrollSendPin", "authorizeSend", "prepareTxs", "relayPrepared", "discardPrepared", "rescanWallet",
+        "closeWallet", "wipe", "httpPost"
     ].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
 
     static weak var shared: ZephyrWalletPlugin?
@@ -52,6 +54,10 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// walletQ only.
     private var wallet: OpaquePointer?
+    /// walletQ only: the send built by prepareTxs and waiting for review + PIN (the engine holds it).
+    private var preparedToken: String?
+    private var preparedAt = Date.distantPast
+    private static let preparedTTL: TimeInterval = 180
     /// Read by controlQ (stopSyncing) under liveLock; cleared under the lock before the wallet is freed.
     private let liveLock = NSLock()
     private var live: OpaquePointer?
@@ -332,9 +338,38 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Builds, signs and (relay:true) broadcasts; needs an authorizeSend() within the last 180 s.
-    @objc func createTxs(_ call: CAPPluginCall) {
+    // MARK: - two-step send (as on Android)
+
+    /// Step 1: builds and signs WITHOUT broadcasting, so the review screen shows the exact fee.
+    /// In: {txConfigJson, nodeUrl, sweep}. Out: {token, fee, amount, count, ttlMs, minted?}.
+    /// Any earlier PIN entry is cancelled: the PIN has to be entered for THIS review.
+    @objc func prepareTxs(_ call: CAPPluginCall) {
         let json = call.getString("txConfigJson") ?? "{}", node = call.getString("nodeUrl") ?? ""
+        let sweep = call.getBool("sweep") ?? false
+        NativeAuth.disarm()
+        walletQ.async { [self] in
+            clearPrepared()
+            do {
+                guard let w = wallet else { throw Engine.Failure(message: "No wallet") }
+                if !node.isEmpty { try connect(w, node, "", "") }
+                var r = try Engine.json { zios_wallet_prepare_txs(w, json, sweep ? 1 : 0, $0) }
+                let token = Self.randomHex(16)
+                preparedToken = token
+                preparedAt = Date()
+                r["token"] = token
+                r["ttlMs"] = Int(Self.preparedTTL * 1000)
+                call.resolve(r)
+            } catch {
+                clearPrepared()
+                call.reject(Self.msg(error))
+            }
+        }
+    }
+
+    /// Step 2: broadcasts what prepareTxs built. Needs the review's token, less than 180 s since
+    /// it was built, and a native PIN check (authorizeSend) that this call uses up.
+    @objc func relayPrepared(_ call: CAPPluginCall) {
+        let token = call.getString("token") ?? "", node = call.getString("nodeUrl") ?? ""
         guard NativeAuth.consume() else {
             call.reject("Send not authorized — enter your PIN again")
             return
@@ -342,8 +377,19 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
         walletQ.async { [self] in
             do {
                 guard let w = wallet else { throw Engine.Failure(message: "No wallet") }
-                if !node.isEmpty { try connect(w, node, "", "") }
-                let r = try Engine.json { zios_wallet_create_txs(w, json, $0) }
+                guard let t = preparedToken, !token.isEmpty, Self.constantTimeEquals(t, token) else {
+                    throw Engine.Failure(message: "This send is no longer ready — review it again")
+                }
+                if Date().timeIntervalSince(preparedAt) > Self.preparedTTL {
+                    clearPrepared()
+                    throw Engine.Failure(message: "This send expired — review it again")
+                }
+                preparedToken = nil
+                preparedAt = .distantPast
+                if !node.isEmpty {
+                    do { try connect(w, node, "", "") } catch { zios_wallet_discard_prepared(w); throw error }
+                }
+                let r = try Engine.json { zios_wallet_relay_prepared(w, $0) }
                 // A sent transaction's secret key exists only in the cache: store it right away.
                 try? persist()
                 call.resolve(r)
@@ -351,6 +397,60 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject(Self.msg(error))
             }
         }
+    }
+
+    /// The review was closed without sending.
+    @objc func discardPrepared(_ call: CAPPluginCall) {
+        NativeAuth.disarm()
+        walletQ.async { [self] in
+            clearPrepared()
+            call.resolve(["ok": true])
+        }
+    }
+
+    /// Rescans from {height} with the stored keys (no seed needed, works after a Face ID unlock).
+    @objc func rescanWallet(_ call: CAPPluginCall) {
+        let h = call.getDouble("height") ?? 0
+        let height: UInt64 = h.isFinite && h > 0 ? UInt64(min(h, 1e15)) : 0
+        stopRequested = true
+        controlQ.async { [self] in stopLive() }
+        walletQ.async { [self] in
+            do {
+                guard let w = wallet else { throw Engine.Failure(message: "No wallet") }
+                clearPrepared()
+                NativeAuth.disarm()
+                stopRequested = false
+                var r = try Engine.json { zios_wallet_rescan(w, height, $0) }
+                try? persist()
+                r["ok"] = true
+                call.resolve(r)
+            } catch {
+                call.reject(Self.msg(error))
+            }
+        }
+    }
+
+    /// walletQ only.
+    private func clearPrepared() {
+        preparedToken = nil
+        preparedAt = .distantPast
+        if let w = wallet { zios_wallet_discard_prepared(w) }
+    }
+
+    private static func randomHex(_ n: Int) -> String {
+        var b = [UInt8](repeating: 0, count: n)
+        if SecRandomCopyBytes(kSecRandomDefault, n, &b) != errSecSuccess {
+            for i in 0..<n { b[i] = UInt8.random(in: 0...255) }   // SystemRandomNumberGenerator: also a CSPRNG
+        }
+        return b.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let x = Array(a.utf8), y = Array(b.utf8)
+        guard x.count == y.count else { return false }
+        var d: UInt8 = 0
+        for i in 0..<x.count { d |= x[i] ^ y[i] }
+        return d == 0
     }
 
     @objc func closeWallet(_ call: CAPPluginCall) {
@@ -482,6 +582,7 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func closeNow() {
+        clearPrepared()
         guard let w = wallet else { return }
         wallet = nil
         liveLock.lock(); live = nil; liveLock.unlock()

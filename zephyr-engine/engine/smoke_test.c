@@ -193,7 +193,7 @@ int main(int argc, char** argv) {
     /* the core reads the pool from the node for the history: offline it must fail cleanly
        (the Android library, on the same core, behaves the same) or return no transactions */
     j = zios_wallet_tx_history(w, &err);
-    check((j && strcmp(j, "{\"txs\":[]}") == 0) || (!j && err), "history: empty or a clean error offline", NULL);
+    check((j && strcmp(j, "{\"txs\":[],\"viewOnly\":false}") == 0) || (!j && err), "history: empty (not view-only) or a clean error offline", NULL);
     if (err) printf("      history error: %s\n", err);
     zios_free(j); zios_free(err); err = NULL;
     char* reason = NULL;
@@ -212,12 +212,35 @@ int main(int argc, char** argv) {
     check(j == NULL && err != NULL, "sync without a node fails cleanly", NULL);
     if (err) printf("      sync error: %s\n", err);
     zios_free(j); zios_free(err); err = NULL;
-    j = zios_wallet_create_txs(w, "{\"destinations\":[{\"address\":\"x\",\"amount\":\"1\"}],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZPH\",\"relay\":false}", &err);
-    check(j == NULL && err != NULL, "send without a node fails cleanly", NULL);
-    if (err) printf("      send error: %s\n", err);
+    /* two-step send: refusals happen before anything is built, a build needs the node */
+    char cfgj[1024];
+    snprintf(cfgj, sizeof cfgj, "{\"destinations\":[{\"address\":\"%s\",\"amount\":\"1\"}],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZPH\",\"relay\":true}", addr);
+    j = zios_wallet_prepare_txs(w, cfgj, 0, &err);
+    check(j == NULL && err != NULL, "prepare without a node fails cleanly", NULL);
+    if (err) printf("      prepare error: %s\n", err);
     zios_free(j); zios_free(err); err = NULL;
-    j = zios_wallet_create_txs(w, "{\"destinations\":[{\"address\":\"x\",\"amount\":\"-5\"}],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZPH\"}", &err);
-    check(j == NULL && err && strcmp(err, "Bad amount") == 0, "negative amount refused", NULL);
+    static const struct { const char* json; int sweep; const char* want; const char* what; } refuse[] = {
+      { "{\"destinations\":[{\"address\":\"x\",\"amount\":\"-5\"}],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZPH\"}", 0, "Bad amount", "negative amount refused" },
+      { "{\"destinations\":[{\"address\":\"x\",\"amount\":\"0\"}],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZPH\"}", 0, "Bad amount", "zero amount refused" },
+      { "{\"destinations\":[{\"address\":\"x\",\"amount\":\"1\"}],\"sourceCurrency\":\"BTC\",\"destinationCurrency\":\"ZPH\"}", 0, "Bad asset", "unknown asset refused" },
+      { "{\"destinations\":[],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZPH\"}", 0, "No destination", "no destination refused" },
+      { "{\"destinations\":[{\"address\":\"x\"}],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZSD\"}", 1, "MAX sweep is for sends only", "MAX conversion refused" },
+      { "{\"destinations\":[{\"address\":\"x\"},{\"address\":\"y\"}],\"sourceCurrency\":\"ZPH\",\"destinationCurrency\":\"ZPH\"}", 1, "MAX sends to one address", "MAX to two addresses refused" },
+    };
+    for (size_t i = 0; i < sizeof refuse / sizeof refuse[0]; i++) {
+      j = zios_wallet_prepare_txs(w, refuse[i].json, refuse[i].sweep, &err);
+      int ok = j == NULL && err && strcmp(err, refuse[i].want) == 0;
+      if (!ok && err) printf("      got: %s\n", err);
+      check(ok, refuse[i].what, NULL);
+      zios_free(j); zios_free(err); err = NULL;
+    }
+    j = zios_wallet_relay_prepared(w, &err);
+    check(j == NULL && err && strncmp(err, "This send is no longer ready", 28) == 0, "relay with nothing prepared refused", NULL);
+    zios_free(j); zios_free(err); err = NULL;
+    zios_wallet_discard_prepared(w);
+    j = zios_wallet_rescan(w, 0, &err);
+    check(j == NULL && err != NULL, "rescan without a node fails cleanly", NULL);
+    if (err) printf("      rescan error: %s\n", err);
     zios_free(j); zios_free(err); err = NULL;
     zios_wallet_stop_syncing(w);
     check(zios_wallet_set_listener(w, NULL, &err) == 0, "remove listener", err); err = NULL;

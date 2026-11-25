@@ -7,6 +7,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "zephyr_ios.h"
 #include "wallet/monero_wallet_full.h"
@@ -70,6 +71,8 @@ R guarded(char** err, R fail, F f) {
 
 struct zios_wallet {
   monero::monero_wallet_full* w = nullptr;
+  // zios_wallet_prepare_txs: built and signed, not broadcast yet (relay data in m_metadata)
+  std::vector<std::shared_ptr<monero::monero_tx_wallet>> prepared;
   // deleted after the wallet (the core holds a reference to it until it is closed)
   std::unique_ptr<zios::listener_adapter> listener;
 };

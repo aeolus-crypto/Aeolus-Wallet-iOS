@@ -4,7 +4,7 @@ import Foundation
 /// Keep in sync with BUILTIN_NODES and with the Android plugin's NODE_HOSTS.
 enum NodeAllowlist {
     static let hosts: Set<String> = [
-        "node.zeph.network", "remote-node.zephyrprotocol.com", "nodes.hashvault.pro", "node.lateo.dev"
+        "node.lateo.dev", "remote-node.zephyrprotocol.com", "nodes.hashvault.pro"
     ]
 
     /// Returns the URL if it is http(s) to an allowed node host without user info, else throws.

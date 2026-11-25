@@ -1,4 +1,5 @@
 import Foundation
+import MessageUI
 import UIKit
 import WebKit
 import Capacitor
@@ -6,7 +7,9 @@ import Capacitor
 /// The iOS counterpart of the Android activity's extras, so index.html runs unchanged:
 ///  - window.Android: biometric unlock, sensitive clipboard copy and "Delete wallet" wipe
 ///    (Android: WalletBridge), injected before the page's own scripts run;
+///  - window.Android.emailDebugLog (Settings -> Email Debug Log): Mail, or the share sheet;
 ///  - window.AndroidSettings.openAppSettings (the QR scanner uses the WebView camera on iOS);
+///  - the WebView may use the camera (QR scanner) and nothing else: no microphone;
 ///  - privacy shield (Android: FLAG_SECURE): a cover over the app in the app switcher and while
 ///    the screen is recorded or mirrored. iOS lets no app block screenshots themselves.
 /// Android's JavaScript interface answers synchronously; WebKit's message handlers do not. So the
@@ -19,8 +22,11 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = []
 
     private static let handlerName = "aeolusAndroid"
+    static let debugLogAddress = "aeoluswallet@protonmail.com"
     private var cover: UIView?
     private var inactive = false
+    private var mediaGuard: MediaGuard?
+    private var mailDelegate: MailDelegate?
 
     override public func load() {
         InstallGuard.run()
@@ -36,6 +42,10 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
         ucc.addUserScript(script)
         let layout = WKUserScript(source: Self.safeAreaScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         ucc.addUserScript(layout)
+        // Camera only (Android: onPermissionRequest grants VIDEO_CAPTURE and denies the rest).
+        let g = MediaGuard(forwardingTo: web.uiDelegate, appScheme: bridge?.config.localURL.scheme)
+        mediaGuard = g
+        web.uiDelegate = g
         // in case the first page load had already begun when the plugin loaded
         web.evaluateJavaScript(script.source, completionHandler: nil)
         web.evaluateJavaScript(layout.source, completionHandler: nil)
@@ -63,6 +73,7 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
             showBiometricPrompt: function(){ post({ cmd: 'showBiometricPrompt' }); },
             copySensitive: function(t){ if (!t) return false; post({ cmd: 'copySensitive', text: String(t) }); return true; },
             clearWalletCache: function(){ post({ cmd: 'clearWalletCache' }); },
+            emailDebugLog: function(t){ post({ cmd: 'emailDebugLog', text: String(t || '') }); return true; },
             updateBalances: function(){}, updateSyncStatus: function(){}, updateTransactions: function(){}
           };
           window.AndroidSettings = { openAppSettings: function(){ post({ cmd: 'openAppSettings' }); } };
@@ -91,7 +102,9 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
             '#bnav{padding-bottom:calc(8px + ' + b + ')}' +
             '#page-home,#page-history,#page-settings,#page-node,#page-swap{bottom:0;padding-bottom:calc(56px + ' + b + ')}' +
             '#send-confirm-modal{padding-top:calc(24px + ' + t + ') !important;padding-bottom:calc(24px + ' + b + ') !important}' +
-            '#qr-scanner-modal,#wipe-confirm-modal,#cam-perm-modal{padding-top:' + t + ' !important;padding-bottom:' + b + ' !important}';
+            '#qr-scanner-modal,#wipe-confirm-modal,#cam-perm-modal{padding-top:' + t + ' !important;padding-bottom:' + b + ' !important}' +
+            // Background Sync and Payment Alerts run on Android's foreground service; iOS has none.
+            '.si2[onclick^="toggleBgSync"],#payalerts-row{display:none !important}';
           (document.head || document.documentElement).appendChild(s);
         })();
         """
@@ -123,11 +136,44 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
             }
         case "clearWalletCache":
             ZephyrWalletPlugin.wipeFromNative()
+        case "emailDebugLog":
+            emailDebugLog((body["text"] as? String) ?? "")
         case "openAppSettings":
             if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
         default:
             break
         }
+    }
+
+    /// Mail with the address, subject and log filled in (nothing is sent until the user taps Send);
+    /// without a Mail account, the share sheet with the log as a text file. Last 200k characters,
+    /// as on Android.
+    private func emailDebugLog(_ text: String) {
+        let log = text.count > 200_000 ? String(text.suffix(200_000)) : text
+        guard let vc = bridge?.viewController else { return }
+        let subject = "Aeolus Wallet debug log"
+        if MFMailComposeViewController.canSendMail() {
+            let m = MFMailComposeViewController()
+            let d = MailDelegate()
+            mailDelegate = d
+            m.mailComposeDelegate = d
+            m.setToRecipients([Self.debugLogAddress])
+            m.setSubject(subject)
+            m.setMessageBody(log, isHTML: false)
+            vc.present(m, animated: true)
+            return
+        }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("Aeolus-debug-log.txt")
+        do {
+            try Data(log.utf8).write(to: file, options: [.atomic, .completeFileProtection])
+        } catch {
+            return
+        }
+        let share = UIActivityViewController(activityItems: [DebugLogItem(file: file, subject: subject)],
+                                             applicationActivities: nil)
+        share.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: file) }
+        share.popoverPresentationController?.sourceView = vc.view
+        vc.present(share, animated: true)
     }
 
     private func bioResult(_ ok: Bool, _ reason: String?) {
@@ -179,4 +225,50 @@ private final class WeakHandler: NSObject, WKScriptMessageHandler {
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
         target?.handle(message)
     }
+}
+
+/// Grants the page's camera request (QR scanner) and denies anything with the microphone; every
+/// other WKUIDelegate call goes on to Capacitor's own delegate.
+private final class MediaGuard: NSObject, WKUIDelegate {
+    private weak var next: WKUIDelegate?
+    private let appScheme: String?
+
+    init(forwardingTo next: WKUIDelegate?, appScheme: String?) {
+        self.next = next
+        self.appScheme = appScheme
+    }
+
+    @available(iOS 15.0, *)
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let ownPage = frame.isMainFrame && origin.protocol == appScheme
+        decisionHandler(ownPage && type == .camera ? .grant : .deny)
+    }
+
+    override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || (next?.responds(to: aSelector) ?? false)
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        if super.responds(to: aSelector) { return nil }
+        return next
+    }
+}
+
+private final class MailDelegate: NSObject, MFMailComposeViewControllerDelegate {
+    func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult,
+                               error: Error?) {
+        controller.dismiss(animated: true)
+    }
+}
+
+/// The share sheet's item: the log file, with the email subject for mail apps.
+private final class DebugLogItem: NSObject, UIActivityItemSource {
+    let file: URL
+    let subject: String
+    init(file: URL, subject: String) { self.file = file; self.subject = subject }
+    func activityViewControllerPlaceholderItem(_ c: UIActivityViewController) -> Any { file }
+    func activityViewController(_ c: UIActivityViewController, itemForActivityType t: UIActivity.ActivityType?) -> Any? { file }
+    func activityViewController(_ c: UIActivityViewController, subjectForActivityType t: UIActivity.ActivityType?) -> String { subject }
 }

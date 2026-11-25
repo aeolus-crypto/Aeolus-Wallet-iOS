@@ -36,12 +36,20 @@
       },
       setDaemon:   function (m) { return P.setDaemon({ url: m.url, user: m.user || '', pass: m.pass || '' }); },
       setListener: function ()  { return P.setListener(); },
-      sync:        function (m) { return P.sync({ startHeight: m.startHeight || 0 }); },
+      sync:        function (m) {
+        var opts = {};
+        if (m && typeof m.startHeight === 'number' && m.startHeight > 0) opts.startHeight = m.startHeight;
+        return P.sync(opts);
+      },
       stopSyncing: function ()  { return P.stopSyncing(); },
       createSubaddress: function (m) { return P.createSubaddress({ label: m.label || '', minCount: m.minCount || 0 }); },
-      createTxs:   function (m) { return P.createTxs({ txConfigJson: m.txConfigJson, nodeUrl: m.nodeUrl || '' }); },
+      // Two-step send: build without broadcasting (exact fee), then broadcast after the PIN.
+      prepareTxs:      function (m) { return P.prepareTxs({ txConfigJson: m.txConfigJson, nodeUrl: m.nodeUrl || '', sweep: !!m.sweep }); },
+      relayPrepared:   function (m) { return P.relayPrepared({ token: m.token, nodeUrl: m.nodeUrl || '' }); },
+      discardPrepared: function () { return P.discardPrepared(); },
       getTxHistory: function () { return P.getTxHistory(); },
       getBalances:  function () { return P.getBalances(); },
+      rescanWallet: function (m) { return P.rescanWallet({ height: (m && m.height) || 0 }); },
       getReserveInfo: function () { return P.getReserveInfo(); },
       closeWallet: function ()  { return P.closeWallet(); }
     };

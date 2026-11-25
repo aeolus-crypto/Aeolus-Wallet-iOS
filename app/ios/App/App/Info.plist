@@ -41,13 +41,6 @@
 				<key>NSIncludesSubdomains</key>
 				<false/>
 			</dict>
-			<key>node.zeph.network</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<false/>
-			</dict>
 			<key>nodes.hashvault.pro</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>

@@ -29,6 +29,11 @@ void kv(Writer& w, const char* k, const std::string& v) { key(w, k); str(w, v); 
 
 char* finish(rapidjson::StringBuffer& sb) { return zios::dup(std::string(sb.GetString(), sb.GetSize())); }
 
+bool is_v2(const std::string& a) {
+  for (const char* v : V2_ASSETS) if (a == v) return true;
+  return false;
+}
+
 monero_wallet_full* need(zios_wallet* w) {
   if (!w || !w->w) throw std::runtime_error("No wallet");
   return w->w;
@@ -239,6 +244,10 @@ char* zios_wallet_tx_history(zios_wallet* w, char** err) {
       o.EndObject();
     }
     o.EndArray();
+    key(o, "viewOnly");
+    bool view_only = false;
+    try { view_only = x->is_view_only(); } catch (...) {}
+    o.Bool(view_only);
     o.EndObject();
     return finish(sb);
   });
@@ -266,36 +275,51 @@ char* zios_wallet_reserve_info(zios_wallet* w, char** err) {
   });
 }
 
-char* zios_wallet_create_txs(zios_wallet* w, const char* page_json, char** err) {
+char* zios_wallet_prepare_txs(zios_wallet* w, const char* page_json, int sweep, char** err) {
   return guarded(err, static_cast<char*>(nullptr), [&]() -> char* {
     monero_wallet_full* x = need(w);
+    w->prepared.clear();
+    if (x->is_view_only()) throw std::runtime_error("Wallet is view-only \xE2\x80\x94 unlock with your PIN and try again");
     rapidjson::Document in;
     in.Parse(page_json ? page_json : "");
     if (in.HasParseError() || !in.IsObject()) throw std::runtime_error("Bad transaction config");
 
-    // Rebuild the config from the fields the Android plugin accepts, and nothing else.
+    const rapidjson::Value& ds = member(in, "destinations");
+    if (!ds.IsArray() || ds.Empty()) throw std::runtime_error("No destination");
+    const rapidjson::Value& scv = member(in, "sourceCurrency");
+    const rapidjson::Value& dcv = member(in, "destinationCurrency");
+    if (!scv.IsString() || !dcv.IsString()) throw std::runtime_error("Bad asset");
+    const std::string src = scv.GetString(), dst = dcv.GetString();
+    if (!is_v2(src) || !is_v2(dst)) throw std::runtime_error("Bad asset");
+    if (!ds[0].IsObject() || !member(ds[0], "address").IsString()) throw std::runtime_error("Bad address");
+    const std::string first_address = member(ds[0], "address").GetString();
+    if (sweep) {
+      if (src != dst) throw std::runtime_error("MAX sweep is for sends only");
+      if (ds.Size() != 1) throw std::runtime_error("MAX sends to one address");
+    }
+
+    // Rebuild the config from the fields the Android plugin accepts, and nothing else; never relay.
     rapidjson::StringBuffer cb;
     Writer c(cb);
     c.StartObject();
-    const rapidjson::Value& ds = member(in, "destinations");
-    if (!ds.IsArray() || ds.Empty()) throw std::runtime_error("No destinations");
     key(c, "destinations");
     c.StartArray();
     for (const auto& d : ds.GetArray()) {
       if (!d.IsObject()) throw std::runtime_error("Bad destination");
       const rapidjson::Value& a = member(d, "address");
-      if (!a.IsString()) throw std::runtime_error("Bad address");
+      if (!a.IsString() || !*a.GetString()) throw std::runtime_error("Bad address");
       c.StartObject();
       kv(c, "address", a.GetString());
-      key(c, "amount"); c.Uint64(parse_amount(member(d, "amount")));
+      if (!sweep) {
+        uint64_t amount = parse_amount(member(d, "amount"));
+        if (amount == 0) throw std::runtime_error("Bad amount");
+        key(c, "amount"); c.Uint64(amount);
+      }
       c.EndObject();
     }
     c.EndArray();
-    const rapidjson::Value& sc = member(in, "sourceCurrency");
-    const rapidjson::Value& dc = member(in, "destinationCurrency");
-    if (!sc.IsString() || !dc.IsString()) throw std::runtime_error("Bad currency");
-    kv(c, "sourceCurrency", sc.GetString());
-    kv(c, "destinationCurrency", dc.GetString());
+    kv(c, "sourceCurrency", src);
+    kv(c, "destinationCurrency", dst);
     int account = 0;
     auto ai = in.FindMember("accountIndex");
     if (ai != in.MemberEnd()) {
@@ -303,10 +327,7 @@ char* zios_wallet_create_txs(zios_wallet* w, const char* page_json, char** err) 
       account = ai->value.GetInt();
     }
     key(c, "accountIndex"); c.Uint(static_cast<unsigned>(account));
-    bool relay = false;
-    auto ri = in.FindMember("relay");
-    if (ri != in.MemberEnd() && ri->value.IsBool()) relay = ri->value.GetBool();
-    key(c, "relay"); c.Bool(relay);
+    key(c, "relay"); c.Bool(false);
     auto si = in.FindMember("subaddressIndices");
     if (si != in.MemberEnd() && si->value.IsArray() && !si->value.Empty()) {
       key(c, "subaddressIndices");
@@ -320,21 +341,90 @@ char* zios_wallet_create_txs(zios_wallet* w, const char* page_json, char** err) 
     c.EndObject();
 
     std::shared_ptr<monero_tx_config> cfg = monero_tx_config::deserialize(std::string(cb.GetString(), cb.GetSize()));
-    std::vector<std::shared_ptr<monero_tx_wallet>> txs = x->create_txs(*cfg);
+    std::vector<std::shared_ptr<monero_tx_wallet>> txs = sweep ? x->sweep_unlocked(*cfg) : x->create_txs(*cfg);
+    if (txs.empty()) throw std::runtime_error("The wallet built no transaction");
+
+    // Check what was built before anyone is asked to approve it (as the Android plugin does).
+    uint64_t fee = 0, amount = 0, minted = 0;
+    for (const auto& tx : txs) {
+      if (!tx || !tx->m_metadata || tx->m_metadata->empty()) throw std::runtime_error("Built transaction has no relay data");
+      if (tx->m_fee) fee += *tx->m_fee;
+      std::shared_ptr<monero_outgoing_transfer> og;
+      if (tx->m_outgoing_transfer && *tx->m_outgoing_transfer) og = *tx->m_outgoing_transfer;
+      const std::string asset = og ? og->m_asset_type : std::string();
+      if (!asset.empty() && asset != src) throw std::runtime_error("Built transaction spends " + asset + ", not " + src);
+      if (sweep && asset.empty()) throw std::runtime_error("Could not check the MAX transaction's asset \xE2\x80\x94 enter an amount instead");
+      if (og && !og->m_destinations.empty()) {
+        for (const auto& d : og->m_destinations) {
+          if (!d) continue;
+          if (d->m_address && *d->m_address != first_address && ds.Size() == 1)
+            throw std::runtime_error("Built transaction pays a different address");
+          if (d->m_amount) amount += *d->m_amount;
+        }
+      } else if (og && og->m_amount) {
+        amount += *og->m_amount;
+      }
+      if (src != dst) {
+        for (const auto& t : tx->m_incoming_transfers)
+          if (t && t->m_asset_type == dst && t->m_amount) minted += *t->m_amount;
+      }
+    }
+    if (amount == 0) throw std::runtime_error("Nothing to send");
+    w->prepared = txs;
+
+    rapidjson::StringBuffer sb;
+    Writer o(sb);
+    o.StartObject();
+    kv(o, "fee", std::to_string(fee));
+    kv(o, "amount", std::to_string(amount));
+    key(o, "count"); o.Uint(static_cast<unsigned>(txs.size()));
+    if (minted > 0) kv(o, "minted", std::to_string(minted));
+    o.EndObject();
+    return finish(sb);
+  });
+}
+
+char* zios_wallet_relay_prepared(zios_wallet* w, char** err) {
+  return guarded(err, static_cast<char*>(nullptr), [&]() -> char* {
+    monero_wallet_full* x = need(w);
+    if (w->prepared.empty()) throw std::runtime_error("This send is no longer ready \xE2\x80\x94 review it again");
+    std::vector<std::shared_ptr<monero_tx_wallet>> txs;
+    txs.swap(w->prepared);   // one broadcast per prepare, whatever happens next
+    std::vector<std::string> metadatas;
+    for (const auto& tx : txs) metadatas.push_back(*tx->m_metadata);
+    std::vector<std::string> hashes = x->relay_txs(metadatas);
 
     rapidjson::StringBuffer sb;
     Writer o(sb);
     o.StartObject();
     key(o, "txs");
     o.StartArray();
-    for (const auto& tx : txs) {
-      if (!tx) continue;
+    for (size_t i = 0; i < txs.size(); i++) {
       o.StartObject();
-      kv(o, "hash", tx->m_hash ? *tx->m_hash : "");
-      kv(o, "fee", std::to_string(tx->m_fee ? *tx->m_fee : 0));
+      kv(o, "hash", i < hashes.size() && !hashes[i].empty() ? hashes[i] : (txs[i]->m_hash ? *txs[i]->m_hash : ""));
+      kv(o, "fee", std::to_string(txs[i]->m_fee ? *txs[i]->m_fee : 0));
       o.EndObject();
     }
     o.EndArray();
+    o.EndObject();
+    return finish(sb);
+  });
+}
+
+void zios_wallet_discard_prepared(zios_wallet* w) {
+  if (w) w->prepared.clear();
+}
+
+char* zios_wallet_rescan(zios_wallet* w, uint64_t height, char** err) {
+  return guarded(err, static_cast<char*>(nullptr), [&]() -> char* {
+    monero_wallet_full* x = need(w);
+    w->prepared.clear();
+    x->set_restore_height(height);
+    x->rescan_blockchain();
+    rapidjson::StringBuffer sb;
+    Writer o(sb);
+    o.StartObject();
+    key(o, "height"); o.Uint64(x->get_height());
     o.EndObject();
     return finish(sb);
   });

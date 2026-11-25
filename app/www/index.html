@@ -430,6 +430,7 @@ textarea{resize:none;line-height:1.65}
     </div>
     <div id="net-status-pill">
       <span style="font-size:12px;font-family:var(--mono)" id="net-status-text">—</span>
+      <button id="sync-btn" onclick="event.stopPropagation();refreshSync('button')" title="Refresh: reconnect and resume (no rescan)" style="display:none;align-items:center;gap:5px;margin-left:10px;padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--light);font-size:11px;font-weight:700;cursor:pointer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Refresh</button>
     </div>
     </div>
     <!-- Total balance card -->
@@ -512,9 +513,11 @@ textarea{resize:none;line-height:1.65}
     </div>
 
     <div class="sw-box">
-      <div class="sw-row"><span>Conversion Rate (Spot Rate)</span><span id="sw-rate">—</span></div>
-      <div class="sw-row"><span>Converting From</span><span id="sw-i-from">ZEPH</span></div>
-      <div class="sw-row"><span>Converting To</span><span id="sw-i-to">ZSD</span></div>
+      <div class="sw-row"><span>Rate (Spot)</span><span id="sw-rate">—</span></div>
+      <div class="sw-row"><span>Rate (24h Average)</span><span id="sw-rate-ma">—</span></div>
+      <div class="sw-row"><span>You Get at Spot</span><span id="sw-get-spot">—</span></div>
+      <div class="sw-row"><span>You Get at 24h Average</span><span id="sw-get-ma">—</span></div>
+      <div class="sw-row"><span>Reserve Ratio (Spot / 24h)</span><span id="sw-rr">—</span></div>
       <div class="sw-row"><span>Conversion Fee</span><span id="sw-i-fee">ZEPH</span></div>
       <div class="sw-row"><span>Unlock Time</span><span>~20m</span></div>
     </div>
@@ -584,6 +587,7 @@ textarea{resize:none;line-height:1.65}
     </div>
     <div id="rescan-panel" style="display:none;background:var(--dim2);border:1px solid var(--border);border-radius:var(--rsm);padding:16px;margin-bottom:4px">
       <div class="label" style="margin-bottom:8px">Scan from block height</div>
+      <div style="font-size:12px;line-height:1.45;color:var(--yellow);margin-bottom:10px">⚠️ Funds you received <b>before</b> this block won't show after the rescan. Use your wallet's start block (filled in) or "From block 0". If sync is only stuck, tap the status dot on Home and use <b>Refresh</b> instead.</div>
       <input id="rescan-height" type="number" placeholder="e.g. 753400" style="margin-bottom:12px">
       <div style="display:flex;gap:8px">
         <button class="btn btn-p" style="flex:1;padding:12px" onclick="doRescanHeight()">Scan from height</button>
@@ -617,12 +621,22 @@ textarea{resize:none;line-height:1.65}
     </div>
     <div class="si2" onclick="toggleBgSync()">
       <div class="sii" style="background:rgba(99,72,255,0.12)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.88 6.67 2.33"/><polyline points="22 2 22 8 16 8"/><polyline points="12 6 12 12 16 14"/></svg></div>
-      <div style="flex:1"><div style="font-size:15px;font-weight:600">Background Sync</div><div id="bgsync-sub" style="font-size:12px;color:var(--muted);margin-top:2px">Pauses sync when minimized</div></div>
+      <div style="flex:1"><div style="font-size:15px;font-weight:600">Background Sync</div><div id="bgsync-sub" style="font-size:12px;color:var(--muted);margin-top:2px">Only syncs while the app is open</div><div id="bgsync-note" style="font-size:11px;color:rgba(232,238,255,0.75);margin-top:4px;line-height:1.35">Some brands limit this. Fix: Settings → Apps → Aeolus → Battery → Unrestricted</div></div>
       <div id="bgsync-dot" style="width:36px;height:20px;border-radius:10px;background:var(--dim);position:relative;transition:.3s;flex-shrink:0"><div id="bgsync-knob" style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:white;transition:.3s"></div></div>
     </div>
-    <div class="si2" onclick="copyDebugLog()">
-      <div class="sii" style="background:rgba(99,72,255,0.12)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
-      <div style="flex:1"><div style="font-size:15px;font-weight:600">Copy Debug Log</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Persists across sessions · Send to developer</div></div>
+    <div class="si2" id="payalerts-row" onclick="togglePayAlerts()">
+      <div class="sii" style="background:rgba(54,207,149,0.12)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#36cf95" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
+      <div style="flex:1"><div style="font-size:15px;font-weight:600">Payment Alerts</div><div id="payalerts-sub" style="font-size:12px;color:var(--muted);margin-top:2px">Needs Background Sync</div></div>
+      <div id="payalerts-dot" style="width:36px;height:20px;border-radius:10px;background:var(--dim);position:relative;transition:.3s;flex-shrink:0"><div id="payalerts-knob" style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:white;transition:.3s"></div></div>
+    </div>
+    <div class="si2" onclick="toggleHistSrc()">
+      <div class="sii" style="background:rgba(54,207,149,0.12)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#36cf95" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></div>
+      <div style="flex:1"><div style="font-size:15px;font-weight:600">History from Wallet Records</div><div id="histsrc-sub" style="font-size:12px;color:var(--muted);margin-top:2px">Off · history built from balance changes</div></div>
+      <div id="histsrc-dot" style="width:36px;height:20px;border-radius:10px;background:var(--dim);position:relative;transition:.3s;flex-shrink:0"><div id="histsrc-knob" style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:white;transition:.3s"></div></div>
+    </div>
+    <div class="si2" onclick="emailDebugLog()">
+      <div class="sii" style="background:rgba(99,72,255,0.12)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+      <div style="flex:1"><div style="font-size:15px;font-weight:600">Email Debug Log</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Opens your mail app · to aeoluswallet@protonmail.com</div></div>
       <button onclick="event.stopPropagation();clearDebugLog()" style="background:var(--dim);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 10px;font-size:11px;font-family:var(--font);cursor:pointer">Clear</button>
     </div>
     <div class="si2" onclick="wipe()">
@@ -646,14 +660,14 @@ textarea{resize:none;line-height:1.65}
     <div class="label">Public Nodes</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">
 
-      <div class="node-card card" id="nc-0" onclick="selectAndSaveNode('https://node.zeph.network:443',0)" style="cursor:pointer;padding:14px 16px">
+      <div class="node-card card" id="nc-0" onclick="selectAndSaveNode('https://node.lateo.dev:443',0)" style="cursor:pointer;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
             <div style="display:flex;align-items:center;gap:8px">
-              <div style="font-size:13px;font-weight:700">ZEPH.network SSL</div>
+              <div style="font-size:13px;font-weight:700">Lateo SSL</div>
               <span style="font-size:9px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;background:rgba(62,237,191,0.12);color:var(--green);border-radius:6px;padding:2px 7px">RECOMMENDED</span>
             </div>
-            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px">node.zeph.network:443</div>
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px">node.lateo.dev:443</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="ping-0">—</span>
@@ -661,12 +675,11 @@ textarea{resize:none;line-height:1.65}
           </div>
         </div>
       </div>
-
-      <div class="node-card card" id="nc-1" onclick="selectAndSaveNode('http://node.zeph.network:80',1)" style="cursor:pointer;padding:14px 16px">
+      <div class="node-card card" id="nc-1" onclick="selectAndSaveNode('http://node.lateo.dev:80',1)" style="cursor:pointer;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
-            <div style="font-size:13px;font-weight:700">ZEPH.network HTTP</div>
-            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px">node.zeph.network:80</div>
+            <div style="font-size:13px;font-weight:700">Lateo HTTP</div>
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px">node.lateo.dev:80</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="ping-1">—</span>
@@ -674,7 +687,6 @@ textarea{resize:none;line-height:1.65}
           </div>
         </div>
       </div>
-
       <div class="node-card card" id="nc-2" onclick="selectAndSaveNode('http://remote-node.zephyrprotocol.com:17767',2)" style="cursor:pointer;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
@@ -687,7 +699,6 @@ textarea{resize:none;line-height:1.65}
           </div>
         </div>
       </div>
-
       <div class="node-card card" id="nc-3" onclick="selectAndSaveNode('http://nodes.hashvault.pro:17767',3)" style="cursor:pointer;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
@@ -697,32 +708,6 @@ textarea{resize:none;line-height:1.65}
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="ping-3">—</span>
             <div class="nd" id="dot-3"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="node-card card" id="nc-4" onclick="selectAndSaveNode('https://node.lateo.dev:443',4)" style="cursor:pointer;padding:14px 16px">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div>
-            <div style="font-size:13px;font-weight:700">Lateo SSL</div>
-            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px">node.lateo.dev:443</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="ping-4">—</span>
-            <div class="nd" id="dot-4"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="node-card card" id="nc-5" onclick="selectAndSaveNode('http://node.lateo.dev:80',5)" style="cursor:pointer;padding:14px 16px">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div>
-            <div style="font-size:13px;font-weight:700">Lateo HTTP</div>
-            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px">node.lateo.dev:80</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="ping-5">—</span>
-            <div class="nd" id="dot-5"></div>
           </div>
         </div>
       </div>
@@ -794,7 +779,7 @@ textarea{resize:none;line-height:1.65}
 
     <div class="label">Amount</div>
     <div style="position:relative;margin-bottom:6px">
-      <input id="send-amt" type="text" inputmode="decimal" pattern="[0-9]*[.]?[0-9]*" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="0.000000" oninput="amtClean(this)" style="padding-right:64px">
+      <input id="send-amt" type="text" inputmode="decimal" pattern="[0-9]*[.]?[0-9]*" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="0.000000" oninput="amtClean(this);_sendMax=null" style="padding-right:64px">
       <button onclick="maxAmt()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:var(--accent);color:#fff;border:none;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">MAX</button>
     </div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:20px" id="send-avail">Available: 0.000000</div>
@@ -811,6 +796,10 @@ textarea{resize:none;line-height:1.65}
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5" id="sc-sub">Transactions are irreversible. Check the address carefully.</div>
     <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Amount</div>
     <div id="sc-amt" style="font-size:20px;font-weight:800;font-family:var(--mono);margin-bottom:12px">—</div>
+    <div id="sc-fee-wrap" style="display:none;margin:-4px 0 12px;background:var(--dim);border:1px solid var(--border);border-radius:10px;padding:9px 11px">
+      <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px"><span style="color:var(--muted)">Network fee (exact)</span><span id="sc-fee" style="font-family:var(--mono)">—</span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;margin-top:5px"><span style="color:var(--muted)" id="sc-total-label">Total leaving wallet</span><span id="sc-total" style="font-family:var(--mono);font-weight:700">—</span></div>
+    </div>
     <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px" id="sc-addr-label">To Address</div>
     <div id="sc-addr" style="font-size:11px;font-family:var(--mono);word-break:break-all;background:var(--dim);border:1px solid var(--border);border-radius:10px;padding:10px;line-height:1.5;margin-bottom:12px">—</div>
     <div id="sc-net-warn" style="display:none;font-size:11px;color:var(--yellow);background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:9px 11px;line-height:1.5;margin-bottom:12px">⚠️ Node connection is plain HTTP — switch to an HTTPS node in Settings for safer sends.</div>
@@ -1015,6 +1004,9 @@ const STORAGE_KEYS = {
     'zw_enc_mnemonic',
     'zw_vk_enc',
     'zw_prices_cache',
+    'zw_rates_cache',
+    'zw_hist_src',
+    'zw_hist_legacy',
     'zw_bio_pref_set',
     'zw_subaddrs',
     'zw_addrbook',
@@ -1025,6 +1017,8 @@ const STORAGE_KEYS = {
     'zw_hide_bal',
     'zw_sync_interval',
     'zw_bg_sync',
+    'zw_bg_sync2',
+    'zw_pay_alerts',
     'zw_tip_hold_home'
   ],
   secure: [
@@ -1043,14 +1037,14 @@ const STORAGE_KEYS = {
 // ── App state ─────────────────────────────────────────────────────
 let W = {
   wallet: null, pin: null,
-  nodeUrl: 'https://node.zeph.network:443', // default HTTPS node (failover prefers HTTPS first)
+  nodeUrl: 'https://node.lateo.dev:443', // default node: Lateo SSL (failover prefers HTTPS first)
   balances: { ZPH:0, ZSD:0, ZRS:0, ZYS:0 },
   lockedBals: { ZPH:0, ZSD:0, ZRS:0, ZYS:0 },
   prices:   { ZPH:0, ZSD:1.00, ZRS:0, ZYS:1.00 },
   transactions: [],
   scanHeight: 0
 };
-let sendAsset='ZPH', _sending=false, txFilter='all', pinBuf='', spBuf='', spFirst='', spPhase=0, curWallet=null, _seedRevealBuf='';
+let sendAsset='ZPH', _sending=false, _locked=false, txFilter='all', pinBuf='', spBuf='', spFirst='', spPhase=0, curWallet=null, _seedRevealBuf='';
 let selectedNodeIdx=0, autoConnect=true;
 let toastT, _syncing=false;
 let _nextSyncTimer = null;
@@ -1062,6 +1056,7 @@ var _syncIntervalOptions = [
 ];
 var _syncIntervalIdx = 0;
 var _bgSyncEnabled = false;
+var _payAlertsOn = true;   // Payment Alerts (zw_pay_alerts: '0' = off). Only matters with Background Sync on.
 
 function cycleSyncInterval(){
   _syncIntervalIdx = (_syncIntervalIdx + 1) % _syncIntervalOptions.length;
@@ -1080,14 +1075,56 @@ function loadSyncInterval(){
     var sub = document.getElementById('sync-interval-sub');
     if(sub) sub.textContent = _syncIntervalOptions[_syncIntervalIdx].label;
   }
-  _bgSyncEnabled = localStorage.getItem('zw_bg_sync') === '1';
+  // New Background Sync (native service) uses a new key: everyone starts with it off, so nobody
+  // gets a surprise notification after updating. The old switch only delayed the auto-lock.
+  try{ localStorage.removeItem('zw_bg_sync'); }catch(e){}
+  _bgSyncEnabled = localStorage.getItem('zw_bg_sync2') === '1';
+  _payAlertsOn = localStorage.getItem('zw_pay_alerts') !== '0';
   updateBgSyncUI();
+  try{ updateHistSrcUI(); }catch(e){}
 }
-function toggleBgSync(){
-  _bgSyncEnabled = !_bgSyncEnabled;
-  localStorage.setItem('zw_bg_sync', _bgSyncEnabled ? '1' : '0');
-  updateBgSyncUI();
-  toast(_bgSyncEnabled ? 'Background sync enabled — syncs while app is minimized' : 'Background sync disabled', 2500);
+// ── Background Sync: a native foreground service keeps syncing with the screen off ──
+// It only syncs while the app is in the background (the page syncs while it's open), shows a
+// "Background sync" notification while running, and posts "Payment received" for new incoming
+// payments. The app still locks after 5 s in the background; sending still needs the PIN.
+// It needs History from Wallet Records: the old history is only built from what the page sees
+// during its own syncs, so payments found in the background would miss their row.
+var _bgSyncBusy = false;
+function _bgPlugin(){ var P = (typeof _zwPlugin === 'function') ? _zwPlugin() : null; return (P && typeof P.startBackgroundSync === 'function') ? P : null; }
+async function toggleBgSync(){
+  if(_bgSyncBusy) return;
+  var P = _bgPlugin();
+  if(!_bgSyncEnabled){
+    if(!P){ toast('Background sync needs the Android app', 3000); return; }
+    if(!W.wallet){ toast('Open your wallet first', 2500); return; }
+    _bgSyncBusy = true;
+    try{
+      if(!_histFromWallet()){
+        try{ localStorage.setItem(_HIST_LEGACY_KEY, JSON.stringify(W.transactions || [])); }catch(e){}
+        try{ localStorage.setItem(_HIST_SRC_KEY, 'wallet'); }catch(e){}
+        try{ updateHistSrcUI(); _rebuildHistoryFromWallet().then(function(ok){ if(ok){ save(); renderRecentTxs(); renderAllTxs(); } }).catch(function(){}); }catch(e){}
+      }
+      try{ if(P.setPaymentAlerts) await P.setPaymentAlerts({ enabled: _payAlertsOn }); }catch(e){}
+      await P.startBackgroundSync();
+      _bgSyncEnabled = true;
+      try{ localStorage.setItem('zw_bg_sync2', '1'); }catch(e){}
+      updateBgSyncUI();
+    }catch(e){
+      toast('Could not start background sync: ' + ((e && e.message) || 'error'), 4000);
+    }finally{ _bgSyncBusy = false; }
+  } else {
+    _bgSyncEnabled = false;
+    try{ localStorage.setItem('zw_bg_sync2', '0'); }catch(e){}
+    try{ if(P) await P.stopBackgroundSync(); }catch(e){}
+    updateBgSyncUI();
+  }
+}
+// Keep the service running while the switch is on (it can only be started with the app in front).
+function _ensureBgService(){
+  if(!_bgSyncEnabled) return;
+  var P = _bgPlugin(); if(!P) return;
+  try{ if(P.setPaymentAlerts) P.setPaymentAlerts({ enabled: _payAlertsOn }).catch(function(){}); }catch(e){}
+  try{ P.startBackgroundSync().catch(function(e){ console.warn('[BGSYNC] start failed:', e && e.message); }); }catch(e){}
 }
 function updateBgSyncUI(){
   var dot = document.getElementById('bgsync-dot');
@@ -1095,7 +1132,36 @@ function updateBgSyncUI(){
   var sub = document.getElementById('bgsync-sub');
   if(dot) dot.style.background = _bgSyncEnabled ? 'var(--accent)' : 'var(--dim)';
   if(knob) knob.style.left = _bgSyncEnabled ? '18px' : '2px';
-  if(sub) sub.textContent = _bgSyncEnabled ? 'Syncs while app is minimized' : 'Pauses sync when minimized';
+  if(sub) sub.textContent = _bgSyncEnabled ? ('Syncs with the screen off' + (_payAlertsOn ? ' · notifies you of payments' : '')) : 'Only syncs while the app is open';
+  updatePayAlertsUI();
+}
+function updatePayAlertsUI(){
+  var row = document.getElementById('payalerts-row');
+  var dot = document.getElementById('payalerts-dot');
+  var knob = document.getElementById('payalerts-knob');
+  var sub = document.getElementById('payalerts-sub');
+  var on = _bgSyncEnabled && _payAlertsOn;
+  if(row) row.style.opacity = _bgSyncEnabled ? '1' : '0.5';
+  if(dot) dot.style.background = on ? 'var(--accent)' : 'var(--dim)';
+  if(knob) knob.style.left = on ? '18px' : '2px';
+  if(sub) sub.textContent = !_bgSyncEnabled ? 'Needs Background Sync' : (_payAlertsOn ? 'Notifies you when a payment arrives' : 'Off · background sync stays silent');
+}
+var _payAlertsBusy = false;
+async function togglePayAlerts(){
+  if(_payAlertsBusy) return;
+  if(!_bgSyncEnabled){ toast('Turn on Background Sync first — alerts come from it', 3000); return; }
+  var P = _bgPlugin();
+  if(!P || typeof P.setPaymentAlerts !== 'function'){ toast('Payment alerts need the Android app', 3000); return; }
+  var next = !_payAlertsOn;
+  _payAlertsBusy = true;
+  try{
+    await P.setPaymentAlerts({ enabled: next });
+    _payAlertsOn = next;
+    try{ localStorage.setItem('zw_pay_alerts', next ? '1' : '0'); }catch(e){}
+    updateBgSyncUI();
+  }catch(e){
+    toast('Could not change payment alerts: ' + ((e && e.message) || 'error'), 3500);
+  }finally{ _payAlertsBusy = false; }
 }
 
 // ── Debug log capture (for remote testers — Settings → Copy Debug Log) ──
@@ -1164,7 +1230,7 @@ function _redactTxids(s){
   console.warn  = function(){ _oW.apply(console,arguments);   cap('WARN', arguments); };
   console.error = function(){ _oE.apply(console,arguments);   cap('ERR',  arguments); };
 })();
-function copyDebugLog(){
+function _buildDebugLog(){
   var info='=== Aeolus Debug (Full) ===\n';
   info+='Time: '+new Date().toISOString()+'\n';
   info+='UA: '+navigator.userAgent.slice(0,150)+'\n';
@@ -1184,6 +1250,20 @@ function copyDebugLog(){
     info+='\n\n=== SEND SESSION LOG ('+_sendSessionLog.length+' entries, active='+_sendSessionActive+') ===\n';
     info+=_sendSessionLog.join('\n');
   }
+  return info;
+}
+// Opens the default mail app with the log filled in, to aeoluswallet@protonmail.com (the address
+// is fixed in the Android code). Nothing is sent until you press Send. Falls back to copying.
+function emailDebugLog(){
+  var info = _buildDebugLog();
+  var ok = false;
+  try{ ok = !!(window.Android && typeof window.Android.emailDebugLog === 'function' && window.Android.emailDebugLog(info)); }catch(e){}
+  if(ok){ toast('Opening your mail app…', 2500); return; }
+  copyDebugLog();
+  toast('No mail app found — log copied instead. Paste it into an email to aeoluswallet@protonmail.com', 6000);
+}
+function copyDebugLog(){
+  var info = _buildDebugLog();
   try{
     if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(info); }
     else{ var ta=document.createElement('textarea');ta.value=info;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove(); }
@@ -1635,7 +1715,9 @@ function _foldFeeRows(){
       if(!best || (s.timestamp || 0) > (best.timestamp || 0)) best = s;
     }
     if(best){
-      best.fee = (best.fee || 0) + f.amount; best._feeFolded = true;
+      // Sends built on the review screen already carry their exact fee: just drop the stray row.
+      if(!best._feeExact) best.fee = (best.fee || 0) + f.amount;
+      best._feeFolded = true;
       txs.splice(i, 1); changed = true;
       console.log('[HIST] folded fee '+f.amount.toFixed(6)+' '+f.asset+' into send '+String(best.txid).slice(0,8));
     }
@@ -1653,7 +1735,7 @@ function normTx(t){
   var o={}; for(var k in t){ if(Object.prototype.hasOwnProperty.call(t,k)) o[k]=t[k]; }
   o.type=type; o.asset=asset; o.amount=_numSafe(t.amount); o.fee=_numSafe(t.fee);
   o.height=Math.max(0,Math.floor(_numSafe(t.height))); o.timestamp=ts;
-  o.txid=(t.txid==null)?'':String(t.txid); o.confirmed=(t.confirmed===false)?false:true;
+  o.txid=(t.txid==null)?'':String(t.txid); o.confirmed=(t.confirmed===false)?false:true; o.failed=!!t.failed;
   return o;
 }
 function normTxList(list){
@@ -1670,11 +1752,14 @@ function _fmtDateTime(ts){
 // Last-resort row: plain text only, cannot throw. Used if the rich row fails.
 function txRowFallback(tx){
   try{
-    var n=normTx(tx)||{type:'in',asset:'ZPH',amount:0,timestamp:0,txid:''};
+    var n=normTx(tx)||{type:'in',asset:'ZPH',amount:0,timestamp:0,txid:'',failed:false};
     var sym=htmlEsc(n.asset==='ZPH'?'ZEPH':n.asset);
     var amt=_balHidden()?(n.type==='in'?'+':'-')+'••••••':(n.amount>0?(n.type==='in'?'+':'-')+n.amount.toFixed(6):(n.type==='in'?'Received':'Sent'));
+    var badge = n.failed
+      ? ' <span style="font-size:9px;background:rgba(255,75,75,0.2);color:var(--coral);border-radius:4px;padding:1px 5px;font-weight:700">FAILED</span>'
+      : (n.confirmed===false ? ' <span style="font-size:9px;background:rgba(251,191,36,0.2);color:var(--yellow);border-radius:4px;padding:1px 5px;font-weight:700">PENDING</span>' : '');
     return '<div class="tr" style="flex-direction:column;gap:0;padding:14px 16px">'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><div><div style="font-size:14px;font-weight:700">'+(n.type==='in'?'Received':'Sent')+' '+sym+'</div>'+
+      '<div style="display:flex;justify-content:space-between;gap:12px"><div><div style="font-size:14px;font-weight:700">'+(n.type==='in'?'Received':'Sent')+' '+sym+badge+'</div>'+
       '<div style="font-size:10px;color:var(--muted);margin-top:3px">'+_fmtDateTime(n.timestamp)+'</div></div>'+
       '<div style="font-size:15px;font-weight:800;font-family:var(--mono)">'+amt+'</div></div></div>';
   }catch(e){ return ''; }
@@ -1723,6 +1808,8 @@ function load(){
     if(d.lockedBals)   W.lockedBals = {...W.lockedBals, ...d.lockedBals};
     if(d.scanHeight !== undefined && d.scanHeight !== null) W.scanHeight = d.scanHeight;
     if(d.selectedNodeIdx !== undefined) selectedNodeIdx = d.selectedNodeIdx;
+    // The node list changed (ZEPH.network removed, Lateo first): take the index from the saved URL.
+    selectedNodeIdx = Math.max(0, BUILTIN_NODES.findIndex(function(n){ return n.url===W.nodeUrl || n.alt===W.nodeUrl; }));
     if(d.autoConnect !== undefined)     autoConnect = d.autoConnect;
     var txSnap = (W.transactions||[]).map(function(t){ return (t.txid||'?').slice(0,8)+'|'+t.type+'|'+(t.asset||'?')+'|h'+(t.height||0)+'|'+(t.confirmed===false?'PEND':'OK'); });
     console.log('[BOOT] Loaded txCount='+W.transactions.length+' scanHeight='+W.scanHeight);
@@ -1795,10 +1882,13 @@ function boot(){
   // ── Step 1: Show UI immediately — no waiting ──
   if(W.wallet && W._hasPinSet){
     // PIN screen shows instantly — user types while the engine starts behind it
+    _locked = true;
     goPage('page-pin'); initPinLockUI(); setTimeout(initPinPageBio, 300);
   } else if(!W.wallet){
+    _locked = false;
     goPage('page-onboard');
   } else {
+    _locked = false;
     goPage('page-home');
     var skel = document.getElementById('skeleton-home');
     if(skel) skel.style.display = 'block';
@@ -1836,6 +1926,7 @@ function onPinUnlocked(){
 // ── Navigation ────────────────────────────────────────────────────
 var _NAV_PAGES=new Set(['page-home','page-history','page-settings','page-node','page-swap']);
 function goPage(id){
+  if(_locked && id !== 'page-pin') return;
   closeNetStatus(); // pill is home only
   document.querySelectorAll('.page').forEach(p=>p.classList.toggle('hidden',p.id!==id));
   var bn=document.getElementById('bnav');
@@ -1865,6 +1956,7 @@ async function fetchPrices(){
       var cp = JSON.parse(cached);
       if(cp && cp.ZPH){
         W.prices = {...W.prices, ...cp};
+        try{ var cr = JSON.parse(localStorage.getItem('zw_rates_cache') || 'null'); if(cr && typeof cr === 'object' && !W.rates) W.rates = cr; }catch(e){}
         updBals();
         console.log('[PRICES] Showing cached prices while fetching fresh');
       }
@@ -1883,7 +1975,10 @@ async function fetchPrices(){
       var ok = ['ZPH','ZSD','ZRS','ZYS'].every(function(a){ return typeof r[a] === 'number' && isFinite(r[a]) && r[a] > 0; });
       if(!ok) throw new Error('incomplete pricing record');
       W.prices = {ZPH:r.ZPH, ZSD:r.ZSD, ZRS:r.ZRS, ZYS:r.ZYS};
+      // Spot + 24 h average conversion rates (Swap shows both; the network uses the worse one).
+      W.rates = (r.rates && typeof r.rates === 'object') ? r.rates : null;
       try { localStorage.setItem('zw_prices_cache', JSON.stringify(W.prices)); } catch(e){}
+      try { if(W.rates) localStorage.setItem('zw_rates_cache', JSON.stringify(W.rates)); } catch(e){}
       save(); updBals();
       return;
     }catch(e){
@@ -1899,8 +1994,9 @@ function startPriceRefresh(){ fetchPrices(); clearInterval(_priceTimer); _priceT
 
 function enterApp(){
   goPage('page-home');
+  _ensureBgService();
   updHome();
-  if(!W.nodeUrl) W.nodeUrl='https://node.zeph.network:443';
+  if(!W.nodeUrl) W.nodeUrl='https://node.lateo.dev:443';
   W.nodeUrl = fixNodeUrl(W.nodeUrl);
   startPriceRefresh();
   fixTxTimestamps();
@@ -1943,7 +2039,7 @@ function enterApp(){
     if(W.scanHeight === 0 && !window._intentionalRescan && !W._importFullRescan && !_fullRescanPending) {
       // New wallet — fetch chain tip first so the engine does not scan from block 0
       setNet('sync', 'Fetching chain tip...');
-      nativePost(fixNodeUrl(W.nodeUrl||'https://node.zeph.network:443')+'/json_rpc',
+      nativePost(fixNodeUrl(W.nodeUrl||'https://node.lateo.dev:443')+'/json_rpc',
         {jsonrpc:'2.0',id:'0',method:'get_info'}
       ).then(function(j){
         var tip = j && j.result && j.result.height ? j.result.height : 0;
@@ -1989,8 +2085,25 @@ async function fixTxTimestamps(){
 function showLoad(msg){const o=document.getElementById('lo');if(o)o.classList.add('show');setText('lmsg',msg||'');}
 function hideLoad(){const o=document.getElementById('lo');if(o)o.classList.remove('show');}
 function toast(msg,d=2500){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),d);}
-function openSheet(id){ if(id==='sh-recv' && typeof renderRecv==='function') renderRecv(); document.getElementById(id).classList.add('open'); }
-function closeSheet(id){document.getElementById(id).classList.remove('open');if(id==='sh-send')closeQrScanner();}
+function _clearSeedDom(){
+  var sv = document.getElementById('seed-view'); if(sv){ sv.innerHTML = ''; sv.textContent = ''; }
+  var sd = document.getElementById('seed-display'); if(sd){ sd.innerHTML = ''; sd.textContent = ''; }
+}
+function openSheet(id){
+  if(_locked) return;
+  if(id==='sh-recv' && typeof renderRecv==='function') renderRecv();
+  var el = document.getElementById(id);
+  if(el) el.classList.add('open');
+}
+function closeSheet(id){
+  var el = document.getElementById(id);
+  if(el) el.classList.remove('open');
+  if(id==='sh-send') closeQrScanner();
+  if(id==='sh-seed'){
+    var sv = document.getElementById('seed-view');
+    if(sv){ sv.innerHTML = ''; sv.textContent = ''; }
+  }
+}
 function setText(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
 
 // ── Create wallet ─────────────────────────────────────────────────
@@ -2012,7 +2125,7 @@ async function takeNewWallet(){
 async function fetchNewWalletTip(){
   function ask(){
     return Promise.race([
-      nativePost(fixNodeUrl(W.nodeUrl||'https://node.zeph.network:443')+'/json_rpc', {jsonrpc:'2.0',id:'0',method:'get_info'})
+      nativePost(fixNodeUrl(W.nodeUrl||'https://node.lateo.dev:443')+'/json_rpc', {jsonrpc:'2.0',id:'0',method:'get_info'})
         .then(function(j){ return (j&&j.result&&j.result.height)?j.result.height:0; }),
       new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, 4000); })
     ]);
@@ -2154,7 +2267,7 @@ async function finishPinSetup(secret, mode){
     // goCreate tip fetch failed — try again now
     console.log('[PINCONFIRM] restoreHeight not set, fetching tip...');
     try {
-      const _pj=await nativePost(fixNodeUrl(W.nodeUrl||'https://node.zeph.network:443')+'/json_rpc',
+      const _pj=await nativePost(fixNodeUrl(W.nodeUrl||'https://node.lateo.dev:443')+'/json_rpc',
         {jsonrpc:'2.0',id:'0',method:'get_info'});
       const tip = (_pj&&_pj.result&&_pj.result.height)?_pj.result.height:0;
       if(tip > 0){ _targetScanHeight = tip; curWallet.restoreHeight = tip; }
@@ -2166,7 +2279,9 @@ async function finishPinSetup(secret, mode){
   catch(e){ console.error('[PINCONFIRM] secure save failed'); toast('❌ Could not save your keys securely — please try again', 5000); return; }
   // Only activate wallet & PIN state after secure storage write succeeded
   try{ localStorage.setItem('zw_pin_mode', mode); }catch(e){}
+  _locked = false;
   W.pin=secret; W.wallet=curWallet; W._hasPinSet=true;
+  _clearSeedDom();
   W.scanHeight = _targetScanHeight;
   if(_setFullRescan){
     window._intentionalRescan = true;   // protect from the new-wallet tip-jump in enterApp
@@ -2403,6 +2518,7 @@ function pp(d){
       try{ await _beginPinAttempt(); }catch(e){ pinBuf=''; updDots('pindots','pd',''); startPinLockCountdown(); return; }
       const ok = await unlockWithPin(_entered);
       if(ok){
+        _locked = false;
         pinBuf=''; await _clearLockout();
         if(localStorage.getItem(_SEND_ENROLLED) !== '1') _enrollSendPin(_entered, _entered);
         onPinUnlocked ? onPinUnlocked() : enterApp();
@@ -2447,6 +2563,7 @@ function updateBioRow(){
 }
 window._onBioResult = function(ok){
   if(ok){
+    _locked = false;
     pinBuf=''; _clearLockout();
     // Cold start after full app kill: localStorage no longer holds the plaintext
     // viewKey, so pull the Keystore-held copy before sync starts ("like Cake").
@@ -2730,12 +2847,10 @@ function buildQR(){
 // `alt` = same node with the other scheme. The :17767 nodes are plain-RPC ports; if one of them
 // turns out to speak TLS, the probe below finds it and keeps whichever scheme answers.
 const BUILTIN_NODES = [
-  {name:'ZEPH.network SSL',  url:'https://node.zeph.network:443'},
-  {name:'ZEPH.network HTTP', url:'http://node.zeph.network:80'},
+  {name:'Lateo SSL',         url:'https://node.lateo.dev:443'},          // default
+  {name:'Lateo HTTP',        url:'http://node.lateo.dev:80'},
   {name:'Zephyr Protocol',   url:'http://remote-node.zephyrprotocol.com:17767', alt:'https://remote-node.zephyrprotocol.com:17767'},
   {name:'HashVault',         url:'http://nodes.hashvault.pro:17767',            alt:'https://nodes.hashvault.pro:17767'},
-  {name:'Lateo SSL',         url:'https://node.lateo.dev:443'},
-  {name:'Lateo HTTP',        url:'http://node.lateo.dev:80'},
 ];
 function isBuiltinNode(url){
   return BUILTIN_NODES.some(function(n){ return n.url===url || n.alt===url; });
@@ -2754,14 +2869,13 @@ function selectNode(idx){selectedNodeIdx=idx;W.nodeUrl=getAllNodes()[idx].url;sa
 
 // ── URL normaliser — converts http nodes to correct HTTPS equivalents ──
 function fixNodeUrl(url) {
-  if (!url) return 'https://node.zeph.network:443';
+  if (!url) return 'https://node.lateo.dev:443';
   url = url.trim();
   if (isBuiltinNode(url)) return url;          // built-in nodes keep the exact scheme they were verified with
   url = url.replace(/(:\d+):\d+$/, '$1');
-  if (url.match(/192\.168\.|10\.0\.|172\.1[6-9]\.|localhost|127\.0\.0\.1/)) {
+  if (url.match(/^(https?:\/\/)?(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|127\.0\.0\.1)/)) {
     return url.startsWith('http') ? url : 'http://' + url;
   }
-  if (url.includes('node.zeph.network:80')) return url.replace('https://','http://');
   if (url.startsWith('http://')) return url.replace('http://','https://');
   if (!url.startsWith('https://')) return 'https://' + url;
   return url;
@@ -2845,7 +2959,7 @@ async function failoverNode(){
   if(!win) return false;
   if(gen!==_syncGen || !autoConnect) return false;   // user picked a node meanwhile
   var _switched = selectedNodeIdx!==win.i || W.nodeUrl!==win.r.url;
-  selectedNodeIdx=win.i; W.nodeUrl=win.r.url; _connectedDaemonUrl='';
+  selectedNodeIdx=win.i; W.nodeUrl=win.r.url; _connectedDaemonUrl=''; _daemonUnsynced=false;
   save(); updNodePage();
   if(_switched){ try{ setText('node-sub', nodes[win.i].name); toast('Node unreachable, switched to '+nodes[win.i].name, 3500); }catch(e){} }
   console.log('[NODE] failover ->',nodes[win.i].name,W.nodeUrl,win.r.ms+'ms');
@@ -2860,7 +2974,7 @@ async function autoPickBestNode(){
   const online=onlineHttps.length>0 ? onlineHttps : onlineHttp;
   if(online.length>0){
     autoConnect=true; _syncGen++; _syncFailCount=0;   // automatic switching back on
-    selectedNodeIdx=online[0].i;W.nodeUrl=online[0].url;_connectedDaemonUrl='';save();updNodePage();
+    selectedNodeIdx=online[0].i;W.nodeUrl=online[0].url;_connectedDaemonUrl='';_daemonUnsynced=false;save();updNodePage();
     const h=(online[0].height||0).toLocaleString();
     setNet('ok','Block '+h);
 
@@ -2900,6 +3014,7 @@ async function selectAndSaveNode(url, idx) {
     // Restart sync on new node — reset daemon connection without clobbering _syncing externally
     _syncAbort = true;
     _connectedDaemonUrl = ''; // force reconnect on next sync
+    _daemonUnsynced = false;
     pauseSync().catch(function(){});
     await new Promise(function(r){ setTimeout(r, 300); });
     if(_myGen !== _syncGen) return;
@@ -2941,6 +3056,7 @@ document.addEventListener('DOMContentLoaded',function(){
 // ── RPC ───────────────────────────────────────────────────────────
 // Track last net state for the pill
 let _netState = 'sync', _netMsg = 'Connecting...', _netBlocks = '— / —';
+var _daemonUnsynced = false;
 // Sync position as numbers (the text is locale-formatted, so don't parse it back)
 var _syncCurN = 0, _syncTipN = 0;
 function setSyncBlocks(cur, tip){
@@ -2950,8 +3066,10 @@ function setSyncBlocks(cur, tip){
 }
 
 function setNet(s, msg){
-  // Show green if ok or within 2 blocks of the chain tip
-  if(s !== 'ok' && s !== 'err' && _syncTipN > 0 && (_syncTipN - _syncCurN) <= 2){ s = 'ok'; msg = 'Synced'; }
+  // Never show green 'ok' while the connected daemon itself reports it is still syncing
+  if(_daemonUnsynced && s === 'ok'){ s = 'warn'; msg = 'Node syncing…'; }
+  // Show green if ok or within 2 blocks of the chain tip (only when daemon is synced)
+  if(!_daemonUnsynced && s !== 'ok' && s !== 'err' && s !== 'warn' && _syncTipN > 0 && (_syncTipN - _syncCurN) <= 2){ s = 'ok'; msg = 'Synced'; }
   _netState = s; _netMsg = msg;
 
   // Status dots
@@ -2990,6 +3108,9 @@ function updatePillText(){
   } else if(_netState === 'err'){
     pill.style.color = 'var(--coral)';
     pill.textContent = _netMsg;
+  } else if(_netState === 'warn'){
+    pill.style.color = 'var(--yellow)';
+    pill.textContent = (_netMsg || 'Node syncing…') + ' · ' + blocksVal;
   } else {
     pill.style.color = 'var(--yellow)';
     pill.textContent = 'Syncing · ' + blocksVal;
@@ -3003,9 +3124,9 @@ function toggleNetStatus(){
   updatePillText();
   pill.classList.toggle('open');
 
-  // Show sync button only when syncing (yellow) or on error (red = retry)
+  // Refresh button: always there when the pill is open (a stuck sync often still looks yellow)
   const syncBtn = document.getElementById('sync-btn');
-  if(syncBtn) syncBtn.style.display = _netState === 'ok' ? 'none' : 'flex';
+  if(syncBtn) syncBtn.style.display = 'flex';
 }
 
 // Close the pill when leaving Home
@@ -3124,11 +3245,11 @@ async function openFullWallet() {
     }
     var _cfg = {};
     if(W.wallet.mnemonic && W.wallet.mnemonic.trim().split(' ').length >= 25){
-      _cfg = {path:'',password:'',networkType:0,mnemonic:W.wallet.mnemonic.trim(),restoreHeight:restoreH,server:{uri:fixNodeUrl(W.nodeUrl||'https://node.zeph.network:443')}};
+      _cfg = {path:'',password:'',networkType:0,mnemonic:W.wallet.mnemonic.trim(),restoreHeight:restoreH,server:{uri:fixNodeUrl(W.nodeUrl||'https://node.lateo.dev:443')}};
       console.log('[WORKER] Spend wallet from mnemonic, restoreH='+restoreH+' mnemonicWords='+W.wallet.mnemonic.trim().split(' ').length);
     } else {
       console.warn('[WORKER] View-only fallback — mnemonic missing. W.pin='+(W.pin?'SET':'NULL')+' encKey='+!!localStorage.getItem(_ENC_MNEMONIC_KEY)+' mnemLen='+(W.wallet.mnemonic||'').length);
-      _cfg = {path:'',password:'',networkType:0,primaryAddress:W.wallet.address,privateViewKey:W.wallet.viewKey,restoreHeight:restoreH,server:{uri:fixNodeUrl(W.nodeUrl||'https://node.zeph.network:443')}};
+      _cfg = {path:'',password:'',networkType:0,primaryAddress:W.wallet.address,privateViewKey:W.wallet.viewKey,restoreHeight:restoreH,server:{uri:fixNodeUrl(W.nodeUrl||'https://node.lateo.dev:443')}};
       console.log('[WORKER] View-only wallet, restoreH='+restoreH);
     }
     // Reset sync-phase balances to 0 so delta = full received amount (not 0 from cached balance)
@@ -3280,6 +3401,7 @@ function _wOnMessage(ev){
   // Listener events — same logic as the old inline callbacks
   if(d.type === 'progress'){
     if(_syncAbort) return;
+    if((d.height || 0) !== W.scanHeight) _lastSyncProgressAt = Date.now();
     W.scanHeight = d.height || 0;
     var _now = Date.now();
     if(_now - _lastProgressSave > 30000){ _lastProgressSave = _now; try{save();}catch(e){} }
@@ -3320,7 +3442,52 @@ async function _initWalletWorker(){
 }
 
 
+// ── Refresh: unstick a sync without rescanning ────────────────────────────
+// A dropped or stalled node connection can leave a sync waiting forever without an error.
+// Refresh stops it, picks the fastest reachable node (when Auto Pick is on), and starts a new
+// sync from the wallet's own height — nothing is rescanned and no funds are hidden.
+// The watchdog does this by itself when a sync makes no progress for 2 minutes, and it also
+// runs when the phone's connection comes back or the app is reopened after a stall.
+var _lastSyncProgressAt = 0, _refreshBusy = false, _syncWatchdog = null;
+var _SYNC_STALL_MS = 120000;
+async function refreshSync(reason){
+  if(_refreshBusy || _locked || !W.wallet) return;
+  _refreshBusy = true;
+  try{
+    console.warn('[SYNC] refresh (' + reason + ') at block ' + W.scanHeight);
+    if(reason !== 'watchdog' && reason !== 'online' && reason !== 'resume') toast('Reconnecting…', 2000);
+    setNet('sync', 'Reconnecting...'); try{ updatePillText(); }catch(e){}
+    _syncGen++; _syncAbort = true;
+    clearTimeout(_nextSyncTimer);
+    try{ await _withTimeout(pauseSync(), 15000); }catch(e){}
+    _connectedDaemonUrl = ''; _syncFailCount = 0; _daemonUnsynced = false;
+    if(autoConnect){ try{ await _withTimeout(failoverNode(), 20000); }catch(e){} }
+    // The stuck call ends once the node request gives up; give it a moment, then move on.
+    if(_activeSyncPromise){ try{ await _withTimeout(_activeSyncPromise, 30000); }catch(e){ console.warn('[SYNC] old sync still winding down — starting a new one'); } }
+    if(_locked) return;
+    _syncing = false; _activeSyncPromise = null; _syncAbort = false;
+    _lastSyncProgressAt = Date.now();
+    startSyncUI(); doBlockchainSync().finally(stopSyncUI);
+  } finally {
+    _refreshBusy = false;
+  }
+}
+function _syncStalled(){ return _syncing && !_syncAbort && !_locked && W.wallet && _lastSyncProgressAt > 0 && (Date.now() - _lastSyncProgressAt) > _SYNC_STALL_MS; }
+function _startSyncWatchdog(){
+  if(_syncWatchdog) return;
+  _syncWatchdog = setInterval(function(){
+    if(_syncStalled()){ console.warn('[SYNC] no progress for ' + Math.round((Date.now()-_lastSyncProgressAt)/1000) + 's — refreshing'); refreshSync('watchdog'); }
+  }, 15000);
+  window.addEventListener('online', function(){
+    if(W.wallet && !_locked){ console.log('[SYNC] connection back — refreshing'); setTimeout(function(){ refreshSync('online'); }, 1500); }
+  });
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible' && _syncStalled()) refreshSync('resume');
+  });
+}
+
 async function doBlockchainSync(){
+  _startSyncWatchdog();
   if(_syncing){
     if(_activeSyncGen === _syncGen){ console.log('[SYNC] Already running, skip'); return _activeSyncPromise; }
     // A stale sync from an earlier generation is still winding down — wait for it before starting a new one
@@ -3330,6 +3497,7 @@ async function doBlockchainSync(){
     if(_waitGen !== _syncGen || _syncing) return;
   }
   _syncing = true; _syncAbort = false;
+  _lastSyncProgressAt = Date.now();
   var _gen = _syncGen;
   _activeSyncGen = _gen;
 
@@ -3363,7 +3531,7 @@ async function doBlockchainSync(){
         try{
           // Get chain tip for progress display
           try{
-            var _tipJ = await nativePost(fixNodeUrl(W.nodeUrl||'https://node.zeph.network:443')+'/json_rpc',{jsonrpc:'2.0',id:'0',method:'get_info'});
+            var _tipJ = await nativePost(fixNodeUrl(W.nodeUrl||'https://node.lateo.dev:443')+'/json_rpc',{jsonrpc:'2.0',id:'0',method:'get_info'});
             _wChainTip = (_tipJ&&_tipJ.result&&_tipJ.result.height)||0;
           }catch(e){ _wChainTip = 0; }
           if(_gen !== _syncGen){ console.log('[SYNC] stale sync ended after tip'); return; }
@@ -3387,7 +3555,7 @@ async function doBlockchainSync(){
           });
           console.log('[SYNC-W] syncStartBals='+JSON.stringify(_wSyncStartBals)+' (0 means missing txs will be recreated)');
 
-          var url = fixNodeUrl(W.nodeUrl||'https://node.zeph.network:443');
+          var url = fixNodeUrl(W.nodeUrl||'https://node.lateo.dev:443');
           if(_connectedDaemonUrl !== url){
             await _wCmd('setDaemon', {url:url, user:'', pass:''});
             _connectedDaemonUrl = url;
@@ -3399,9 +3567,11 @@ async function doBlockchainSync(){
           }
           if(_gen !== _syncGen){ console.log('[SYNC] stale sync ended after setListener'); return; }
 
-          console.log('[WORKER] Syncing from block '+W.scanHeight);
-          var _syncRes = await _wCmd('sync', {startHeight: W.scanHeight});
-          if(_syncRes && _syncRes.daemonSynced === false){
+          console.log('[WORKER] Syncing wallet (UI scanHeight='+W.scanHeight+')');
+          var _syncRes = await _wCmd('sync', {});
+          var _nodeSyncing = !!(_syncRes && _syncRes.daemonSynced === false);
+          _daemonUnsynced = _nodeSyncing;
+          if(_nodeSyncing){
             console.warn('[SYNC] node reports it is not fully synced (node height '+(_syncRes.daemonHeight||'?')+')');
             try{ toast('This node is still catching up — balances may be behind. Try Auto Pick Best.', 5000); }catch(e){}
           }
@@ -3412,7 +3582,7 @@ async function doBlockchainSync(){
             // Without this, received txs found mid-sync are lost when app backgrounds
             var _abortTxs = Object.values(_wSyncTxMap);
             console.log('[SYNC-W] Aborted — merging '+_abortTxs.length+' accumulated entries before bailing');
-            if(_abortTxs.length > 0){
+            if(_abortTxs.length > 0 && !_histFromWallet()){   // wallet-record history rebuilds on the next full sync
               var _abortMap = {};
               (W.transactions||[]).forEach(function(t){
                 var k = (t.confirmed===false && t.txid) ? 'pending_'+t.txid+'_'+t.type+'_'+(t.asset||'ZPH') : 'h'+(t.height||0)+'_'+t.type+'_'+(t.asset||'ZPH');
@@ -3426,7 +3596,8 @@ async function doBlockchainSync(){
           }
 
           // Merge worker-collected txs — height-based keys so empty-txid entries aren't collapsed
-          try {
+          // (skipped when history comes from wallet records: rebuilt below instead)
+          if(!_histFromWallet()) try {
             var callbackTxs = Object.values(_wSyncTxMap);
             console.log('[SYNC-W] merge: callback=' + callbackTxs.length + ', existing=' + W.transactions.length);
             // Log existing txs before merge
@@ -3472,7 +3643,13 @@ async function doBlockchainSync(){
             Object.keys(W.balances).forEach(function(k){ W.balances[k]=Math.max(0,W.balances[k]); });
           }
 
-          await fillTxids();
+          if(_histFromWallet()){
+            var _rb = false;
+            try{ _rb = await _rebuildHistoryFromWallet(); }catch(e){ console.warn('[HIST-W] rebuild failed:', e && e.message); }
+            if(!_rb) await fillTxids();     // e.g. view-only for now: keep the current list tidy
+          } else {
+            await fillTxids();
+          }
           if(_gen !== _syncGen){ console.log('[SYNC] stale sync ended after fillTxids'); return; }
 
           // AUTHORITATIVE: the wallet's own balances (all assets, total + unlocked) win over any
@@ -3480,7 +3657,7 @@ async function doBlockchainSync(){
           await _applyNativeBalances();
           if(_gen !== _syncGen){ console.log('[SYNC] stale sync ended after balances'); return; }
           if(W._chainBal){ Object.keys(W._chainBal).forEach(function(k){ W.balances[k] = W._chainBal[k]; }); }
-          W.scanHeight = _wChainTip || W.scanHeight;
+          if(!_nodeSyncing){ W.scanHeight = _wChainTip || W.scanHeight; }
           if(W._importFullRescan && W.scanHeight > 0){ delete W._importFullRescan; }
           if(W.scanHeight > 0){ try{ localStorage.removeItem('zw_full_rescan_pending'); }catch(e){} }
           _syncFailCount = 0;
@@ -3494,13 +3671,17 @@ async function doBlockchainSync(){
             _sendSessionActive = false;
           }
           if(W.scanHeight > 0) setSyncBlocks(W.scanHeight, Math.max(W.scanHeight, _wChainTip||0));
-          setNet('ok','Synced');
+          if(_nodeSyncing){
+            setNet('warn', 'Node syncing…');
+          } else {
+            setNet('ok','Synced');
+          }
 
           // Schedule next autosync
-          if(!_syncAbort){
+          if(!_syncAbort && !_locked){
             clearTimeout(_nextSyncTimer);
             _nextSyncTimer = setTimeout(function(){
-              if(!_syncAbort && !_syncing && W.wallet){
+              if(!_syncAbort && !_locked && !_syncing && W.wallet){
                 console.log('[AUTOSYNC] '+(_syncIntervalMs/1000)+'s tick (worker) — re-syncing from block '+W.scanHeight);
                 startSyncUI(); doBlockchainSync().finally(stopSyncUI);
               }
@@ -3532,7 +3713,7 @@ async function doBlockchainSync(){
           if(_emsg.includes('not loaded') || _emsg.includes('No wallet')) retryDelay = 3000;
           clearTimeout(_nextSyncTimer);
           _nextSyncTimer = setTimeout(function(){
-            if(!_syncAbort && !_syncing && W.wallet){
+            if(!_syncAbort && !_locked && !_syncing && W.wallet){
               startSyncUI(); doBlockchainSync().finally(stopSyncUI);
             }
           }, retryDelay);
@@ -3560,7 +3741,7 @@ async function doBlockchainSync(){
       if (!msg.includes('No node') && !msg.includes('View key')) {
         clearTimeout(_nextSyncTimer);
         _nextSyncTimer = setTimeout(function(){
-          if (!_syncing && W.wallet) {
+          if (!_syncAbort && !_locked && !_syncing && W.wallet) {
             startSyncUI(); doBlockchainSync().finally(stopSyncUI);
           }
         }, 30000);
@@ -3614,13 +3795,122 @@ function amtClean(el, maxDec){
   if(v !== el.value) el.value = v;
 }
 var _scBuf='', _scBusy=false;
+// ── Two-step send (step 32) ─────────────────────────────────────────────────
+// The wallet builds and signs the transaction WITHOUT broadcasting it, so the review screen shows
+// the exact network fee. The PIN then authorizes broadcasting exactly that transaction.
+var _scPrep = null;      // {state:'busy'|'ready'|'error', token, fee:BigInt, amount:BigInt, at, ttl}
+var _scPrepGen = 0;
+var _sendMax = null;     // {asset, value} while the amount field holds a MAX fill → send everything (sweep)
+function _atomsFmt(b, dp){ return fromAtoms(String(b)).toFixed(dp == null ? 6 : dp); }
+function _scFeeRows(fee, total, label){
+  var w=document.getElementById('sc-fee-wrap'); if(w) w.style.display = fee==null ? 'none' : 'block';
+  setText('sc-fee', fee==null ? '—' : fee); setText('sc-total', total==null ? '—' : total);
+  if(label) setText('sc-total-label', label);
+}
+function _scSetStatus(t, color){ var st=document.getElementById('sc-status'); if(st){ st.textContent=t||''; st.style.color=color||'var(--coral)'; } }
+// Turn a wallet error into the same plain-language messages Send and Swap already use.
+function _spendFailMsg(raw, asset, opts){
+  opts = opts || {};
+  var msg = raw || (opts.swap ? 'Swap failed' : 'Send failed'), low = msg.toLowerCase();
+  if(low.includes('not enough') || low.includes('enough money') || low.includes('insufficient')){
+    var lk = _lockedOf(asset);
+    if(lk > 0.000001 || low.includes('unlocked')){
+      return _balHidden()
+        ? 'Not enough spendable funds — part of your balance is still unlocking (≈20 min). Wait a bit or use a smaller amount.'
+        : 'Not enough spendable funds — '+(lk > 0.000001 ? lk.toFixed(6)+' is' : 'part of your balance is')+' still unlocking (≈20 min). Wait a bit or use a smaller amount.';
+    }
+    return opts.swap
+      ? 'Not enough to cover amount + network fee' + (opts.src >= 0 ? ' from the chosen address' : '') + ' — lower the amount a little, or tap MAX.'
+      : 'Not enough to cover amount + network fee — lower the amount a little, or tap MAX to send everything minus the exact fee.';
+  }
+  return _formatWalletError(msg);
+}
+// Discard any prepared native transaction without throwing.
+function _discardPrep(){
+  try{ _wCmd('discardPrepared', {}).catch(function(){}); }catch(_){}
+}
+// Detect timeout or uncertain transport failures where a relay may already have reached the network.
+function _isUncertainRelayErr(e){
+  var m = String((e && e.message) || e || '').toLowerCase();
+  return m === 'timeout' || m.includes('timed out') || m.includes('timeout') ||
+         m.includes('network') || m.includes('connection') || m.includes('reset') ||
+         m.includes('eof') || m.includes('broken pipe');
+}
+// After relayPrepared rejects, query fresh native tx history before rolling back balance so we never
+// encourage a double-spend if the tx actually broadcast or its status is uncertain.
+async function _verifyPostRelayError(err, optTx, asset, amt, prep){
+  try{
+    _nTxMeta = null;
+    var meta = await _withTimeout(_nativeTxMeta(0), 6000);
+    var list = (meta && meta.list) || [];
+    for(var i = 0; i < list.length; i++){
+      var w = list[i];
+      if(!w || !w.out || !w.hash || w.failed) continue;
+      var wAsset = w.out.asset === 'ZEPH' ? 'ZPH' : w.out.asset;
+      if(wAsset !== asset) continue;
+      var alreadyTracked = (W.transactions || []).some(function(t){ return t !== optTx && t.txid === w.hash; });
+      if(alreadyTracked) continue;
+      var exactAtoms = !!(prep && prep.amount && String(w.out.amount) === String(prep.amount));
+      var nearAmt = Math.abs(fromAtoms(w.out.amount) - amt) <= 0.001;
+      if(!exactAtoms && !nearAmt) continue;
+      var ts = Number(w.timestamp || 0);
+      var recent = !ts || !w.confirmed || !!w.inPool || Math.abs(ts - (optTx.timestamp || 0)) <= 600;
+      if(recent) return { status: 'broadcast', hash: String(w.hash) };
+    }
+  }catch(_){}
+  if(_isUncertainRelayErr(err)) return { status: 'uncertain' };
+  return { status: 'failed' };
+}
+// Build (not broadcast) the transaction for the open review screen. Resolves the prepared info,
+// or null if the review was closed meanwhile. Rejects with the wallet's error.
+async function _scPrepare(cfgObj, sweep){
+  var gen = ++_scPrepGen;
+  _scPrep = {state:'busy'};
+  _scFeeRows('Calculating…', '—');
+  _scSetStatus('Building the transaction to get the exact fee…', 'var(--muted)');
+  _syncAbort = true; clearTimeout(_nextSyncTimer);
+  try{
+    await pauseSync();
+    var r = await _withTimeout(_wCmd('prepareTxs', {
+      txConfigJson: JSON.stringify(cfgObj),
+      nodeUrl: fixNodeUrl(W.nodeUrl || 'https://node.lateo.dev:443'),
+      sweep: !!sweep
+    }), 120000);
+    if(gen !== _scPrepGen || _locked){ _discardPrep(); return null; }
+    if(!r || !r.token) throw new Error('The wallet built no transaction');
+    var _mintRaw = r.minted != null ? r.minted : (r.receiveAmount != null ? r.receiveAmount : (r.destinationAmount != null ? r.destinationAmount : null));
+    var _mintBig = null;
+    if(_mintRaw != null && String(_mintRaw).trim() !== ''){
+      try{ var _mb = BigInt(String(_mintRaw)); if(_mb > 0n) _mintBig = _mb; }catch(_){}
+    }
+    _scPrep = {state:'ready', token:r.token, fee:BigInt(r.fee || '0'), amount:BigInt(r.amount || '0'),
+               minted:_mintBig, count:r.count || 1, at:Date.now(), ttl:Number(r.ttlMs) || 180000};
+    return _scPrep;
+  }catch(e){
+    if(gen === _scPrepGen) _scPrep = {state:'error'};
+    throw e;
+  }finally{
+    if(!_sending && !_locked){ _syncAbort = false; resumeBackgroundSync(); }
+  }
+}
+function _scPrepReady(){ return !!(_scPrep && _scPrep.state === 'ready'); }
+function _scPrepExpired(){ return !_scPrepReady() || (Date.now() - _scPrep.at) > (_scPrep.ttl - 10000); }
+
 function scKey(d){
-  if(_scBusy || isPinLocked()) return;
+  if(_scBusy || isPinLocked() || _locked) return;
+  if(!_scPrepReady()){ if(_scPrep && _scPrep.state === 'busy') _scSetStatus('Wait for the exact fee…', 'var(--muted)'); return; }
   var L=_pinLen();
   if(_scBuf.length>=L) return;
   _scBuf+=d; updDots('sc-dots','scd',_scBuf);
   var st=document.getElementById('sc-status'); if(st) st.textContent='';
-  if(_scBuf.length===L) setTimeout(confirmSendAuth,120);
+  if(_scBuf.length===L){
+    var entered = _scBuf, gen = _scPrepGen;
+    _scBusy = true;
+    setTimeout(function(){
+      if(gen !== _scPrepGen || _locked){ _scBusy = false; return; }
+      confirmSendAuth(entered);
+    }, 120);
+  }
 }
 function scDel(){
   if(_scBusy) return;
@@ -3631,19 +3921,33 @@ var _sendPending = null; // snapshotted send params captured before PIN modal
 function _scTexts(title, sub, addrLabel){ setText('sc-title', title); setText('sc-sub', sub); setText('sc-addr-label', addrLabel); }
 function closeSendConfirm(keepPending){
   _scAction = null;
-  if(!keepPending){ _sendPending = null; _swPending = null; }
+  if(!keepPending){
+    _sendPending = null; _swPending = null;
+    _scPrepGen++;                                   // a prepare still running is ignored
+    if(_scPrep){ _discardPrep(); }
+    _scPrep = null;
+  }
+  _scFeeRows(null, null);
   var m=document.getElementById('send-confirm-modal'); if(m) m.style.display='none';
   _scBuf=''; _scBusy=false; updDots('sc-dots','scd','');
   var s=document.getElementById('sc-status'); if(s) s.textContent='';
 }
 
-async function confirmSendAuth(){
+async function confirmSendAuth(submittedPin){
   var st=document.getElementById('sc-status'), btn=document.getElementById('sc-confirm-btn');
-  var pin = _scBuf;
-  if(!pin){ if(st) st.textContent='Enter your '+_authNoun(); return; }
-  if(isPinLocked()){ if(st) st.textContent=_lockoutReadFailed ? 'Secure storage unavailable — restart app' : 'Locked — wait '+_fmtWait(_pinLockedUntil-Date.now()); _scBuf=''; updDots('sc-dots','scd',''); return; }
-  if(_scBusy) return;
+  var fromKey = (typeof submittedPin === 'string');
+  var pin = fromKey ? submittedPin : _scBuf;
+  if(!pin){ _scBusy=false; if(st) st.textContent='Enter your '+_authNoun(); return; }
+  if(_locked){ closeSendConfirm(false); return; }
+  if(_scPrepExpired()){
+    _scBusy=false; _scBuf=''; updDots('sc-dots','scd','');
+    if(st) st.textContent = _scPrepReady() ? 'This review expired — tap Cancel and start again' : 'Wait for the exact fee…';
+    return;
+  }
+  if(isPinLocked()){ _scBusy=false; if(st) st.textContent=_lockoutReadFailed ? 'Secure storage unavailable — restart app' : 'Locked — wait '+_fmtWait(_pinLockedUntil-Date.now()); _scBuf=''; updDots('sc-dots','scd',''); return; }
+  if(_scBusy && !fromKey) return;
   _scBusy=true;
+  var authGen = _scPrepGen;
   if(btn){ btn.disabled=true; btn.textContent='Verifying...'; }
   try{ await _beginPinAttempt(); }catch(e){
     _scBusy=false; if(btn){ btn.disabled=false; btn.textContent='Authorize & Send'; }
@@ -3654,6 +3958,13 @@ async function confirmSendAuth(){
   var ok=false; try{ ok=await verifyPin(pin); }catch(e){}
   if(btn){ btn.disabled=false; btn.textContent='Authorize & Send'; }
   _scBusy=false;
+  var modalEl = document.getElementById('send-confirm-modal');
+  var modalClosed = !modalEl || modalEl.style.display === 'none';
+  if(authGen !== _scPrepGen || _locked || modalClosed){
+    if(ok) await _clearLockout();
+    else registerFailedAttempt();
+    return;
+  }
   if(!ok){
     _scBuf=''; updDots('sc-dots','scd','');
     // Same lockout engine as the lock screen — wrong guesses here count too.
@@ -3662,13 +3973,20 @@ async function confirmSendAuth(){
     if(st) st.textContent = r==='locked' ? 'Wrong '+_authNoun()+' — locked '+_fmtWait(_pinLockedUntil-Date.now()) : 'Wrong '+_authNoun()+' — '+r+' attempts left';
     return;
   }
-  // Second, native check: the wallet plugin refuses createTxs without it (one send, 3 min)
+  // Second, native check: the wallet plugin refuses to broadcast (relayPrepared) without it (one send, 3 min)
   if(btn){ btn.disabled=true; btn.textContent='Authorizing...'; }
   _scBusy=true;
   var nat = await _nativeAuthorizeSend(pin);
   _scBusy=false;
   if(btn){ btn.disabled=false; btn.textContent='Authorize & Send'; }
+  modalClosed = !modalEl || modalEl.style.display === 'none';
+  if(authGen !== _scPrepGen || _locked || modalClosed){
+    if(nat.ok || nat.reason === 'unavailable' || nat.reason === 'error') await _clearLockout();
+    return;
+  }
   if(!nat.ok){
+    // JS PIN verification succeeded; do not burn a PIN attempt on non-PIN native errors
+    if(nat.reason === 'unavailable' || nat.reason === 'error') await _clearLockout();
     _scBuf=''; updDots('sc-dots','scd','');
     if(st) st.textContent = nat.reason==='locked' ? 'Too many attempts — wait '+_fmtWait(nat.retryMs||30000) : 'Could not authorize this send — try again';
     return;
@@ -3680,7 +3998,7 @@ async function confirmSendAuth(){
 }
 // ── Native send PIN ──
 // ZephyrWalletPlugin keeps its own PIN verifier (separate native-only store the page cannot write)
-// and refuses createTxs unless authorizeSend() passed. Enrolled on the first PIN unlock after update,
+// and refuses relayPrepared unless authorizeSend() passed. Enrolled on the first PIN unlock after update,
 // re-enrolled on PIN change (needs the old PIN), forgotten on wipe.
 var _SEND_ENROLLED = 'zw_send_pin_enrolled';
 function _zwPlugin(){ return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ZephyrWallet; }
@@ -3706,7 +4024,7 @@ async function _nativeAuthorizeSend(pin){
 }
 
 async function doSend(){
-  if(_sending) return;
+  if(_sending || _locked) return;
   const addr   = document.getElementById('send-addr').value.trim();
   const amtRaw = (document.getElementById('send-amt').value || '').trim();
   const amt    = parseFloat(amtRaw) || 0;
@@ -3714,6 +4032,7 @@ async function doSend(){
   if(!addr){ st.textContent='❌ Enter recipient address'; st.style.color='var(--coral)'; return; }
   if(!isValidZephyrAddress(addr)){ st.textContent='❌ Not a valid Zephyr address — check for typos or a wrong-coin paste'; st.style.color='var(--coral)'; return; }
   var _ac = await _checkAddr(addr);
+  if(_sending || _locked) return;
   if(!_ac.valid){ st.textContent='❌ Address checksum is wrong — a character is mistyped. Paste or scan it again.'; st.style.color='var(--coral)'; return; }
   if(amt <= 0){ st.textContent='❌ Enter amount'; st.style.color='var(--coral)'; return; }
   // Pre-flight spendable balance check BEFORE opening the PIN modal so locked-only
@@ -3734,8 +4053,10 @@ async function doSend(){
     st.style.color='var(--coral)'; return;
   }
   if(W.scanHeight === 0){ st.textContent='❌ Please sync first'; st.style.color='var(--coral)'; return; }
+  // MAX fill still untouched for this asset → send everything (sweep); the wallet works out the fee.
+  var _isMax = !!(_sendMax && _sendMax.asset === sendAsset && _sendMax.value === amtRaw);
   // Snapshot exact parameters before opening the PIN modal (matching Swap's _swPending)
-  _sendPending = { addr: addr, amtRaw: amtRaw, amt: amt, asset: sendAsset };
+  _sendPending = { addr: addr, amtRaw: amtRaw, amt: amt, asset: sendAsset, max: _isMax };
   // Populate + show the review modal
   _scAction = null; _scTexts('Confirm Send', 'Transactions are irreversible. Check the address carefully.', 'To Address');
   var symC = _symPre;
@@ -3750,24 +4071,49 @@ async function doSend(){
   var nu=(W.nodeUrl||''); var warn=document.getElementById('sc-net-warn');
   var isPrivate=/^http:\/\/(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(nu);
   if(warn) warn.style.display = (nu.indexOf('http://') === 0 && !isPrivate) ? 'block' : 'none';
+  if(_isMax) document.getElementById('sc-amt').textContent = 'Everything ('+symC+')';
   document.getElementById('send-confirm-modal').style.display='flex';
+  // Build the transaction now (not broadcast) to show the exact fee before the PIN.
+  var q = _sendPending, asset = sendAsset;
+  try{
+    var pr = await _scPrepare({
+      accountIndex:0,
+      destinations:[{address:addr, amount: toAtoms(amtRaw || amt).toString()}],
+      sourceCurrency:asset, destinationCurrency:asset
+    }, _isMax);
+    if(!pr || _sendPending !== q) return;          // review closed or replaced meanwhile
+    q.prep = pr;
+    var sendAmt = fromAtoms(pr.amount.toString());
+    q.amt = sendAmt;                                // MAX: the exact amount the sweep sends
+    document.getElementById('sc-amt').textContent = _atomsFmt(pr.amount)+' '+symC+'  ('+fmtFiat(sendAmt*(W.prices[asset]||0))+')';
+    _scFeeRows(_atomsFmt(pr.fee)+' '+symC, _atomsFmt(pr.amount + pr.fee)+' '+symC);
+    _scSetStatus(pr.count > 1 ? 'This send needs '+pr.count+' transactions (fee shown is the total).' : '', 'var(--muted)');
+  }catch(e){
+    if(_sendPending !== q) return;
+    _scFeeRows('—', '—');
+    _scSetStatus('❌ '+_spendFailMsg(e && e.message, asset), 'var(--coral)');
+  }
 }
 
 async function _executeSend(){
   var q = _sendPending; _sendPending = null;
-  if(_sending || !q) return;
+  if(_sending || !q){ if(q && q.prep) _discardPrep(); return; }
+  var prep = q.prep; _scPrep = null;
+  if(!prep || !prep.token){ _discardPrep(); var _s0=document.getElementById('send-status'); if(_s0){ _s0.textContent='❌ Review the send again'; _s0.style.color='var(--coral)'; } return; }
+  if(_locked){ _discardPrep(); return; }
   const addr   = q.addr;
   const amtRaw = q.amtRaw;
   const amt    = q.amt;
   const asset  = q.asset;
   const st     = document.getElementById('send-status');
   const btn    = document.getElementById('send-btn');
-  if(!addr || !isValidZephyrAddress(addr)){ st.textContent='❌ Not a valid Zephyr address'; st.style.color='var(--coral)'; return; }
-  if(amt <= 0){ st.textContent='❌ Enter amount'; st.style.color='var(--coral)'; return; }
+  if(!addr || !isValidZephyrAddress(addr)){ _discardPrep(); st.textContent='❌ Not a valid Zephyr address'; st.style.color='var(--coral)'; return; }
+  if(amt <= 0){ _discardPrep(); st.textContent='❌ Enter amount'; st.style.color='var(--coral)'; return; }
   const avail = W.balances[asset] || 0;
   const _lk = _lockedOf(asset);
   const _symPre = asset==='ZPH' ? 'ZEPH' : asset;
   if(amt > avail){
+    _discardPrep();
     if(_lk > 0.000001 && amt <= avail + _lk){
       // The coins exist — they just haven't matured yet
       st.textContent = _balHidden()
@@ -3780,17 +4126,12 @@ async function _executeSend(){
     }
     st.style.color='var(--coral)'; return;
   }
-  if(amt > avail - _FEE_RESERVE && amt <= avail){
-    // Amount fits the balance but likely not the fee — warn but let the wallet try
-    st.textContent = '⚠️ Amount may not leave room for the network fee — if this fails, lower it by ~'+_FEE_RESERVE;
-    st.style.color='var(--yellow)';
-  }
-  if(!_useWorker){ st.textContent='❌ Wallet not ready — sync first'; st.style.color='var(--coral)'; return; }
-  if(W.scanHeight === 0){ st.textContent='❌ Please sync first'; st.style.color='var(--coral)'; return; }
+  if(!_useWorker){ _discardPrep(); st.textContent='❌ Wallet not ready — sync first'; st.style.color='var(--coral)'; return; }
+  if(W.scanHeight === 0){ _discardPrep(); st.textContent='❌ Please sync first'; st.style.color='var(--coral)'; return; }
   const sym = _symPre;
   const ASSET_TYPE_MAP = {ZPH:'ZPH', ZSD:'ZSD', ZRS:'ZRS', ZYS:'ZYS'};
   const assetTypeStr = ASSET_TYPE_MAP[asset];
-  if(!assetTypeStr){ st.textContent='❌ Unsupported asset: '+asset; st.style.color='var(--coral)'; return; }
+  if(!assetTypeStr){ _discardPrep(); st.textContent='❌ Unsupported asset: '+asset; st.style.color='var(--coral)'; return; }
   _sending = true;
   // Start send session log — captures send → close → reopen → sync
   _sendSessionActive = true;
@@ -3803,9 +4144,10 @@ async function _executeSend(){
   // Show the tx instantly as PENDING; build/broadcast happens in the background.
   // Keep a reference so we can attach the real txid on success, or remove the
   // row and restore the balance if the send fails.
-  var _optTx = {type:'out', asset:asset, amount:amt, timestamp:Math.floor(Date.now()/1000), txid:'pending'+Date.now(), confirmed:false};
+  var _feeN = fromAtoms(prep.fee.toString());
+  var _optTx = {type:'out', asset:asset, amount:amt, fee:_feeN, _feeExact:true, timestamp:Math.floor(Date.now()/1000), txid:'pending'+Date.now(), confirmed:false};
   W.transactions.unshift(_optTx);
-  W.balances[asset] = Math.max(0, avail - amt);
+  W.balances[asset] = Math.max(0, avail - amt - _feeN);
   var _a=document.getElementById('send-addr'); if(_a) _a.value='';
   var _m=document.getElementById('send-amt'); if(_m) _m.value='';
   if(st){ st.textContent=''; }
@@ -3815,31 +4157,34 @@ async function _executeSend(){
   st.style.color='var(--muted)';
   // Stop any NEW sync from starting while we build the tx. We do NOT close the
   // wallet or drop the daemon connection — create_txs needs a live connection to
-  // fetch decoys (get_outs). The native engine runs createTxs on its single wallet
+  // fetch decoys (get_outs). The native engine runs prepare/relay on its single wallet
   // thread, so it always queues behind any in-flight sync.
   _syncAbort = true;
   clearTimeout(_nextSyncTimer);
+  var _relayAttempted = false;
   try{
     // Ask the background refresh to wind down. stop_syncing only sets a flag; the
     // queued create_txs still waits for the in-flight sync C call to fully resolve.
     await pauseSync();
+    if(_locked){
+      _discardPrep();
+      var _oiL = W.transactions.indexOf(_optTx);
+      if(_oiL >= 0) W.transactions.splice(_oiL, 1);
+      W.balances[asset] = avail;
+      try{save();}catch(_){} try{updBals();}catch(_){} try{renderRecentTxs();}catch(_){} try{renderAllTxs();}catch(_){}
+      return;
+    }
 
-    // ── WORKER PATH: create_txs in worker ───────────────────────────────────
+    // ── Broadcast the transaction built and shown on the review screen ─────
     {
-      var _wAmtAtoms = toAtoms(amtRaw || amt).toString();
-      var _wTxCfg = JSON.stringify({
-        accountIndex:0,
-        destinations:[{address:addr, amount:_wAmtAtoms}],
-        sourceCurrency:assetTypeStr,
-        destinationCurrency:assetTypeStr,
-        relay:true
-      });
       // Short address only: this log is stored and can be copied out
-      console.log('[SEND] '+_wAmtAtoms+' atoms '+assetTypeStr+' to '+addr.slice(0,8)+'...'+addr.slice(-4));
-      var nodeUrl = fixNodeUrl(W.nodeUrl || 'https://node.zeph.network:443');
-      var result = await _wCmd('createTxs', {txConfigJson:_wTxCfg, nodeUrl:nodeUrl});
+      console.log('[SEND] relay '+prep.amount+' atoms '+assetTypeStr+(q.max ? ' (MAX)' : '')+' fee '+prep.fee+' to '+addr.slice(0,8)+'...'+addr.slice(-4));
+      var nodeUrl = fixNodeUrl(W.nodeUrl || 'https://node.lateo.dev:443');
+      _relayAttempted = true;
+      var result = await _withTimeout(_wCmd('relayPrepared', {token:prep.token, nodeUrl:nodeUrl}), 90000);
       var _wTxs = (result && result.txs) || [];
       if(!_wTxs.length) throw new Error('The wallet returned no transaction, nothing was sent');
+      _sendMax = null;
       var _wHash = (_wTxs[0] && (_wTxs[0].hash || _wTxs[0].txid || _wTxs[0].id)) || '';
       // Success — close sheet, toast, update row
       _optTx.txid = _wHash || _optTx.txid;
@@ -3848,16 +4193,37 @@ async function _executeSend(){
       save(); renderRecentTxs(); renderAllTxs();
       setTimeout(function(){ if(expireStalePending()){ renderRecentTxs(); renderAllTxs(); } }, 20*60*1000+4000);
       [15000,45000,90000,180000].forEach(function(ms){setTimeout(function(){refreshSentTxStatus();},ms);});
-      _syncAbort = false;
-      resumeBackgroundSync();
       return;
     }
   }catch(e){
-    // Send failed — remove the optimistic row and restore the balance.
+    var _postCheck = _relayAttempted ? await _verifyPostRelayError(e, _optTx, asset, amt, prep) : { status: 'failed' };
+    if(_postCheck.status === 'broadcast'){
+      _sendMax = null;
+      _optTx.txid = _postCheck.hash || _optTx.txid;
+      closeSheet('sh-send');
+      toast('✅ Sent '+amt.toFixed(6)+' '+sym);
+      try{save();}catch(_){} try{renderRecentTxs();}catch(_){} try{renderAllTxs();}catch(_){}
+      [15000,45000,90000,180000].forEach(function(ms){setTimeout(function(){refreshSentTxStatus();},ms);});
+      return;
+    }
+    if(_postCheck.status === 'uncertain'){
+      // Keep the pending row and deducted balance so the user does not accidentally double-spend.
+      _sendMax = null;
+      try{save();}catch(_){} try{updBals();}catch(_){} try{renderRecentTxs();}catch(_){} try{renderAllTxs();}catch(_){}
+      var _uMsg = 'Broadcast status uncertain — wait for sync before retrying';
+      if(!_locked) openSheet('sh-send');
+      var _stU = document.getElementById('send-status');
+      if(_stU){ _stU.textContent = '⚠️ '+_uMsg; _stU.style.color = 'var(--yellow)'; }
+      toast(_uMsg, 6000);
+      [15000,45000,90000].forEach(function(ms){setTimeout(function(){refreshSentTxStatus();},ms);});
+      console.warn('doSend uncertain relay:', e);
+      return;
+    }
+    // Definite failure — remove the optimistic row and restore the balance.
     var _oi = W.transactions.indexOf(_optTx);
     if(_oi >= 0) W.transactions.splice(_oi, 1);
     W.balances[asset] = avail;
-    try{save();}catch(e){} try{updBals();}catch(e){} try{renderRecentTxs();}catch(e){console.warn('[RENDER] recent:',e.message);} try{renderAllTxs();}catch(e){console.warn('[RENDER] all:',e.message);}
+    try{save();}catch(e2){} try{updBals();}catch(e2){} try{renderRecentTxs();}catch(e2){console.warn('[RENDER] recent:',e2.message);} try{renderAllTxs();}catch(e2){console.warn('[RENDER] all:',e2.message);}
     var errMsg = (e && e.message) || 'Send failed';
     if(errMsg.toLowerCase().includes('not enough') || errMsg.toLowerCase().includes('enough money') || errMsg.toLowerCase().includes('insufficient')){
       var _lkE = _lockedOf(asset);
@@ -3866,22 +4232,21 @@ async function _executeSend(){
           ? 'Not enough spendable funds — part of your balance is still unlocking (change and newly received coins need ~10 blocks, ≈20 min). Wait a bit or send a smaller amount.'
           : 'Not enough spendable funds — '+(_lkE > 0.000001 ? _lkE.toFixed(6)+' is' : 'part of your balance is')+' still unlocking (change and newly received coins need ~10 blocks, ≈20 min). Wait a bit or send a smaller amount.';
       } else {
-        errMsg = 'Not enough to cover amount + network fee — lower the amount by ~'+_FEE_RESERVE+', or tap MAX (it leaves fee headroom automatically).';
+        errMsg = 'Not enough to cover amount + network fee — lower the amount a little, or tap MAX to send everything minus the exact fee.';
       }
     } else {
       errMsg = _formatWalletError(errMsg);
     }
-    // Show error in sheet so user can see and retry
-    openSheet('sh-send');
+    // Show error in sheet so user can see and retry (unless locked)
+    if(!_locked) openSheet('sh-send');
     var _st = document.getElementById('send-status');
     if(_st){ _st.textContent = '❌ '+errMsg; _st.style.color = 'var(--coral)'; }
     toast('❌ '+errMsg.slice(0,60), 6000);
     console.error('doSend:', e);
-    _syncAbort = false;
-    resumeBackgroundSync();
   }finally{
     _sending = false;
     if(btn){ btn.disabled=false; btn.textContent='Send →'; btn.style.opacity=''; }
+    if(!_locked){ _syncAbort = false; resumeBackgroundSync(); }
   }
 }
 
@@ -3930,6 +4295,7 @@ function abRender(){
   });
 })();
 function abOpen(targetId){
+  if(_locked) return;
   _abTarget = (typeof targetId==='string') ? targetId : null;
   document.getElementById('ab-hint').style.display = _abTarget ? 'block' : 'none';
   document.getElementById('ab-msg').textContent=''; 
@@ -3943,20 +4309,27 @@ function abPick(i){
   else abCopy(i);
 }
 function abCopy(i){ var c=abLoad()[i]; if(!c) return; try{ navigator.clipboard&&navigator.clipboard.writeText(c.a); }catch(e){} toast('Address copied'); }
+var _abSaving = false;
 async function abSave(){
+  if(_abSaving) return;
   var n=(document.getElementById('ab-name').value||'').trim().slice(0,24);
   var ad=(document.getElementById('ab-addr').value||'').trim();
   var msg=document.getElementById('ab-msg');
   if(!n){ msg.textContent='Enter a name'; return; }
   if(!ad || !isValidZephyrAddress(ad)){ msg.textContent='That is not a valid Zephyr address'; return; }
-  if(!(await _checkAddr(ad)).valid){ msg.textContent='Address checksum is wrong — a character is mistyped'; return; }
-  var a=abLoad();
-  if(a.some(function(c){return c.a===ad;})){ msg.textContent='That address is already saved'; return; }
-  if(a.some(function(c){return c.n.toLowerCase()===n.toLowerCase();})){ msg.textContent='That name is already used'; return; }
-  a.push({n:n,a:ad}); a.sort(function(x,y){return x.n.localeCompare(y.n);});
-  abStore(a); abRender();
-  document.getElementById('ab-name').value=''; document.getElementById('ab-addr').value=''; msg.textContent='';
-  toast('Saved '+n);
+  _abSaving = true;
+  try{
+    if(!(await _checkAddr(ad)).valid){ msg.textContent='Address checksum is wrong — a character is mistyped'; return; }
+    var a=abLoad();
+    if(a.some(function(c){return c.a===ad;})){ msg.textContent='That address is already saved'; return; }
+    if(a.some(function(c){return c.n.toLowerCase()===n.toLowerCase();})){ msg.textContent='That name is already used'; return; }
+    a.push({n:n,a:ad}); a.sort(function(x,y){return x.n.localeCompare(y.n);});
+    abStore(a); abRender();
+    document.getElementById('ab-name').value=''; document.getElementById('ab-addr').value=''; msg.textContent='';
+    toast('Saved '+n);
+  }finally{
+    _abSaving = false;
+  }
 }
 document.addEventListener('DOMContentLoaded', abSub);
 
@@ -4074,7 +4447,8 @@ function _withTimeout(pr, ms){
 }
 var _nTxMeta = null, _nTxMetaAt = 0;
 async function _nativeTxMeta(maxAgeMs){
-  if(_nTxMeta && (Date.now() - _nTxMetaAt) < (maxAgeMs || 5000)) return _nTxMeta;
+  var ttl = (maxAgeMs === undefined || maxAgeMs === null) ? 5000 : maxAgeMs;
+  if(_nTxMeta && ttl > 0 && (Date.now() - _nTxMetaAt) < ttl) return _nTxMeta;
   var r = await _wCmd('getTxHistory', {});
   var list = (r && r.txs) || [], byHash = {}, byHeight = {};
   list.forEach(function(w){
@@ -4133,10 +4507,125 @@ async function _swapReserveCheck(from, to){
   if(!vals.length) return null;
   var bad = vals.filter(function(v){ return rule==='min4' ? v < 4 : v >= 8; });
   if(!bad.length) return null;
-  var pct = Math.round((isFinite(spot) ? spot : vals[0]) * 100) + '%';
+  var worst = rule==='min4' ? Math.min.apply(null, bad) : Math.max.apply(null, bad);
+  var pct = Math.round(worst * 100) + '%';
   var what = (from==='ZPH'&&to==='ZSD') ? 'Minting ZSD' : (from==='ZRS'&&to==='ZPH') ? 'Redeeming ZRS' : 'Minting ZRS';
   var need = rule==='min4' ? 'needs a reserve ratio of at least 400%' : 'is only allowed while the reserve ratio is below 800%';
-  return { block: bad.length === vals.length, msg: what + ' ' + need + ' (now ' + pct + ').' };
+  return { block: bad.length > 0, msg: what + ' ' + need + ' (now ' + pct + ').' };
+}
+
+// ── Step 31: history straight from the wallet's own records ────────────────
+// Off by default (Settings → History from Wallet Records). When on, every sync rebuilds the list
+// from getTxHistory instead of guessing from balance changes. Change can never appear:
+//  • the wallet engine does not list change as a receive, and
+//  • as a second guard, a receive in the SAME coin inside one of our own sends is always dropped.
+// Swap proceeds (a different coin) are shown. The old list is kept as a backup and comes back
+// when the switch is turned off. A view-only wallet can't see its sends, so it is never used.
+var _HIST_SRC_KEY = 'zw_hist_src', _HIST_LEGACY_KEY = 'zw_hist_legacy';
+function _histFromWallet(){ try{ return localStorage.getItem(_HIST_SRC_KEY) === 'wallet'; }catch(e){ return false; } }
+function updateHistSrcUI(){
+  var on = _histFromWallet();
+  var dot = document.getElementById('histsrc-dot'), knob = document.getElementById('histsrc-knob'), sub = document.getElementById('histsrc-sub');
+  if(dot) dot.style.background = on ? 'var(--accent)' : 'var(--dim)';
+  if(knob) knob.style.left = on ? '18px' : '2px';
+  if(sub) sub.textContent = on ? 'On · exact records from the wallet' : 'Off · history built from balance changes';
+}
+async function toggleHistSrc(){
+  if(_histFromWallet() && _bgSyncEnabled){
+    toast('Background Sync needs this — turn Background Sync off first', 3500);
+    return;
+  }
+  if(_histFromWallet()){
+    try{ localStorage.removeItem(_HIST_SRC_KEY); }catch(e){}
+    try{
+      var bak = JSON.parse(localStorage.getItem(_HIST_LEGACY_KEY) || 'null');
+      if(Array.isArray(bak)){ W.transactions = normTxList(bak); localStorage.removeItem(_HIST_LEGACY_KEY); }
+    }catch(e){}
+    save(); try{ renderRecentTxs(); renderAllTxs(); }catch(e){}
+    updateHistSrcUI(); toast('History: back to the old list', 2500);
+    return;
+  }
+  try{ localStorage.setItem(_HIST_LEGACY_KEY, JSON.stringify(W.transactions || [])); }catch(e){}
+  try{ localStorage.setItem(_HIST_SRC_KEY, 'wallet'); }catch(e){}
+  updateHistSrcUI();
+  var ok = false;
+  try{ ok = await _rebuildHistoryFromWallet(); }catch(e){}
+  toast(ok ? 'History rebuilt from wallet records' : 'History will rebuild from wallet records after the next sync', 3500);
+}
+// Pure: wallet records (+ previous rows) -> history rows. Exported for tests.
+function _buildWalletHistory(list, prevRows, nowSec){
+  function key(a){ return a === 'ZEPH' ? 'ZPH' : a; }
+  nowSec = nowSec || Math.floor(Date.now()/1000);
+  var prevByHash = {};
+  (prevRows || []).forEach(function(t){ if(t && t.txid && !prevByHash[t.txid + t.type]) prevByHash[t.txid + t.type] = t; });
+  // Group by hash: an own send and its conversion output can come back as one record or two.
+  var byHash = {}, order = [];
+  (list || []).forEach(function(w){
+    if(!w || !w.hash) return;
+    var g = byHash[w.hash];
+    if(!g){ g = byHash[w.hash] = {hash:w.hash, out:null, ins:[], fee:0n, height:0, ts:0, confirmed:false, failed:false, pool:false}; order.push(w.hash); }
+    if(w.out && !g.out) g.out = {asset:key(w.out.asset), amount:BigInt(String(w.out.amount || '0'))};
+    (w['in'] || []).forEach(function(x){ g.ins.push({asset:key(x.asset), amount:BigInt(String(x.amount || '0'))}); });
+    var f = BigInt(String(w.fee || '0')); if(f > g.fee) g.fee = f;
+    g.height = Math.max(g.height, Number(w.height || 0));
+    g.ts = Math.max(g.ts, Number(w.timestamp || 0));
+    g.confirmed = g.confirmed || !!w.confirmed; g.failed = g.failed || !!w.failed; g.pool = g.pool || !!w.inPool;
+  });
+  var rows = [], dropped = [], seen = {};
+  order.forEach(function(hash){
+    var g = byHash[hash]; seen[hash] = 1;
+    var conf = g.confirmed && g.height > 0 && !g.pool;
+    function ts(type){ var p = prevByHash[hash + type]; return g.ts || (p && p.timestamp) || nowSec; }
+    function sumBy(legs){ var m = {}; legs.forEach(function(x){ if(x.amount > 0n) m[x.asset] = (m[x.asset] || 0n) + x.amount; }); return m; }
+    if(g.out && g.out.amount > 0n){
+      var oa = g.out.asset;
+      var same = g.ins.filter(function(x){ return x.asset === oa; });
+      if(same.length) dropped.push({hash:hash, asset:oa, amount:same.reduce(function(a,x){ return a + x.amount; }, 0n)});
+      var proceeds = sumBy(g.ins.filter(function(x){ return x.asset !== oa; }));
+      var pk = Object.keys(proceeds);
+      var prevOut = prevByHash[hash + 'out'];
+      var row = {type:'out', asset:oa, amount:fromAtoms(g.out.amount.toString()), fee:fromAtoms(g.fee.toString()), _feeExact:true,
+                 txid:hash, height:g.height, timestamp:ts('out'), confirmed:conf, failed:g.failed};
+      var swapTo = pk[0] || (prevOut && prevOut.swapTo);
+      if(swapTo) row.swapTo = swapTo;
+      rows.push(row);
+      pk.forEach(function(a){
+        rows.push({type:'in', asset:a, amount:fromAtoms(proceeds[a].toString()), fee:0, txid:hash, height:g.height,
+                   timestamp:ts('in'), confirmed:conf, failed:g.failed});
+      });
+    } else {
+      var got = sumBy(g.ins);
+      Object.keys(got).forEach(function(a){
+        rows.push({type:'in', asset:a, amount:fromAtoms(got[a].toString()), fee:0, txid:hash, height:g.height,
+                   timestamp:ts('in'), confirmed:conf, failed:g.failed});
+      });
+    }
+  });
+  // Sends made in this app that the wallet doesn't list yet (seconds old) stay until it does.
+  (prevRows || []).forEach(function(t){
+    if(!t || t.type !== 'out' || t.confirmed !== false) return;
+    if(t.txid && seen[t.txid]) return;
+    if((nowSec - Number(t.timestamp || 0)) > 20*60) return;
+    rows.push(t);
+  });
+  rows.sort(function(a,b){ return (b.timestamp||0) - (a.timestamp||0); });
+  return {rows:rows, dropped:dropped};
+}
+// Rebuild W.transactions from the wallet. Returns true if it did.
+async function _rebuildHistoryFromWallet(){
+  if(!_histFromWallet()) return false;
+  var r = await _withTimeout(_wCmd('getTxHistory', {}), 15000);
+  if(!r || !Array.isArray(r.txs)) return false;
+  if(r.viewOnly){ console.warn('[HIST-W] wallet is view-only — keeping the current list'); return false; }
+  var out = _buildWalletHistory(r.txs, W.transactions);
+  if(out.dropped.length){
+    out.dropped.forEach(function(d){ console.log('[HIST-CHECK] hid same-coin receive inside own send (change): ' + _truncTxid(d.hash) + ' ' + fromAtoms(d.amount.toString()) + ' ' + d.asset); });
+  }
+  var noHash = out.rows.filter(function(t){ return t.type === 'in' && !t.txid; }).length;
+  console.log('[HIST-W] rebuilt from wallet: ' + r.txs.length + ' records -> ' + out.rows.length + ' rows' + (out.dropped.length ? (', change hidden: ' + out.dropped.length) : '') + (noHash ? (', WARNING receive rows without TX ID: ' + noHash) : ''));
+  _nTxMeta = null;
+  W.transactions = normTxList(out.rows);
+  return true;
 }
 
 async function fillTxids(){
@@ -4244,11 +4733,12 @@ function expireStalePending(){
 // We wait a bit so the relay settles and we don't spike a sync the instant the
 // tx is built; if a sync is somehow still winding down, retry briefly.
 function resumeBackgroundSync(){
+  if(_locked) return;
   setTimeout(function(){
     (function attempt(tries){
-      if(_syncAbort) return;
+      if(_syncAbort || _locked) return;
       if(_syncing){ if(tries>0) setTimeout(function(){ attempt(tries-1); }, 1000); return; }
-      if(W.wallet){ startSyncUI(); doBlockchainSync().finally(stopSyncUI); }
+      if(W.wallet && !_locked){ startSyncUI(); doBlockchainSync().finally(stopSyncUI); }
     })(10);
   }, 12000);
 }
@@ -4283,15 +4773,14 @@ async function refreshSentTxStatus(){
 
 function startSyncUI(){
   const btn = document.getElementById('sync-btn');
-  if(btn){ btn.classList.add('syncing'); btn.disabled = true; }
+  if(btn){ btn.classList.add('syncing'); }   // stays tappable: Refresh is for exactly a sync that hangs
 }function stopSyncUI(){
   const btn = document.getElementById('sync-btn');
   if(btn){ btn.classList.remove('syncing'); btn.disabled = false; }
   // Only update pill / hide sync btn if we actually finished (not aborted mid-rescan)
   if(!_syncAbort){
     updatePillText();
-    const syncBtn = document.getElementById('sync-btn');
-    if(_netState === 'ok' && syncBtn) syncBtn.style.display = 'none';
+    // (Refresh stays visible in the open pill)
   }
 }
 
@@ -4361,7 +4850,9 @@ async function startNativeQrScan(){
 
 // Where a scanned address goes: the Send sheet (default) or the Add contact form ('ab-addr')
 var _qrTarget = null;
+var _qrOpenGen = 0;
 function openQrScanner(target){
+  if(_locked) return;
   _qrTarget = (target === 'ab-addr') ? 'ab-addr' : null;
   var fb = document.getElementById('qr-fallback-overlay');
   if(fb) fb.style.display = 'none';
@@ -4425,10 +4916,12 @@ function _qrStop(stream){ try{ stream.getTracks().forEach(function(t){ t.stop();
 // Open a rear camera that can autofocus. On multi-camera phones the default rear camera can be a
 // fixed-focus ultrawide (always soft up close); if so, try the other rear cameras and keep the
 // first one with continuous autofocus. Falls back to the default camera if none reports it.
-async function _qrOpenStream(){
+async function _qrOpenStream(gen){
+  var myGen = (typeof gen === 'number') ? gen : _qrOpenGen;
   var size = { width: { ideal: 1280 }, height: { ideal: 720 } };
   var dflt = { video: Object.assign({ facingMode: { ideal: 'environment' } }, size), audio: false };
   var s = await navigator.mediaDevices.getUserMedia(dflt);
+  if(myGen !== _qrOpenGen){ _qrStop(s); return null; }
   var t = s.getVideoTracks()[0];
   if(!t || _qrFocusModes(t).indexOf('continuous') !== -1 || !navigator.mediaDevices.enumerateDevices) return s;
   var cur = '';
@@ -4439,17 +4932,23 @@ async function _qrOpenStream(){
       return d.kind === 'videoinput' && d.deviceId && d.deviceId !== cur && !/front|user/i.test(d.label || '');
     });
   }catch(e){}
+  if(myGen !== _qrOpenGen){ _qrStop(s); return null; }
   if(!others.length) return s;
   _qrStop(s);                        // many phones can only open one camera at a time
   for(var i = 0; i < others.length && i < 4; i++){
+    if(myGen !== _qrOpenGen) return null;
     try{
       var s2 = await navigator.mediaDevices.getUserMedia({ video: Object.assign({ deviceId: { exact: others[i].deviceId } }, size), audio: false });
+      if(myGen !== _qrOpenGen){ _qrStop(s2); return null; }
       var t2 = s2.getVideoTracks()[0];
       if(t2 && _qrFocusModes(t2).indexOf('continuous') !== -1){ console.log('[CAM] switched to an autofocus rear camera'); return s2; }
       _qrStop(s2);
     }catch(e){}
   }
-  return navigator.mediaDevices.getUserMedia(dflt);   // none better: reopen the default
+  if(myGen !== _qrOpenGen) return null;
+  var sFallback = await navigator.mediaDevices.getUserMedia(dflt);   // none better: reopen the default
+  if(myGen !== _qrOpenGen){ _qrStop(sFallback); return null; }
+  return sFallback;
 }
 
 async function startWebCamScanner(){
@@ -4461,12 +4960,16 @@ async function startWebCamScanner(){
     showQrPasteFallback();
     return;
   }
+  var gen = ++_qrOpenGen;
+  if(qrStream){ _qrStop(qrStream); qrStream = null; }
+  if(qrAnimFrame){ cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
   try{
     setText('qr-scan-status','Opening camera…');
     // 1280x720 is plenty: the scan loop crops the middle 70% and decodes at 720 px.
-    var _qs = await _qrOpenStream();
+    var _qs = await _qrOpenStream(gen);
+    if(!_qs) return;
     var _qm = document.getElementById('qr-scanner-modal');
-    if(_qm && _qm.style.display === 'none'){ _qrStop(_qs); return; }   // closed while the camera opened
+    if(gen !== _qrOpenGen || _locked || (_qm && _qm.style.display === 'none')){ _qrStop(_qs); return; }   // closed or superseded while the camera opened
     qrStream = _qs;
     // Ask ONCE for continuous autofocus and leave the camera alone after that. The old code
     // also pushed focusDistance.min (closest macro focus, ~5-10 cm) and re-applied it every
@@ -4478,6 +4981,7 @@ async function startWebCamScanner(){
         await _qrTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
       }
     }catch(_qrFocusErr){ console.warn('[CAM] AF request failed:', _qrFocusErr && _qrFocusErr.name); }
+    if(gen !== _qrOpenGen || _locked){ _qrStop(_qs); if(qrStream === _qs) qrStream = null; return; }
     // Tap the preview to refocus (one short focus pass, then back to continuous).
     vid.onclick = function(){
       if(!_qrTrack || _qrTrack.readyState !== 'live') return;
@@ -4495,9 +4999,11 @@ async function startWebCamScanner(){
     vid.setAttribute('playsinline','');
     vid.style.display = 'block';
     await vid.play().catch(function(){});   // some WebViews need the explicit play()
+    if(gen !== _qrOpenGen || _locked){ _qrStop(_qs); if(qrStream === _qs) qrStream = null; return; }
     setText('qr-scan-status','Align QR code within the frame');
     _qrScanLoop();
   }catch(e){
+    if(gen !== _qrOpenGen || _locked) return;
     console.warn('[CAM] getUserMedia failed:', e && e.name, e && e.message);
     var denied = e && (e.name==='NotAllowedError' || e.name==='SecurityError' || e.name==='PermissionDeniedError');
     if(denied){
@@ -4589,7 +5095,8 @@ window.onNativeCameraFrame = function(dataUrl){
 };
 
 function closeCamPermModal(){
-  document.getElementById('cam-perm-modal').style.display='none';
+  var p = document.getElementById('cam-perm-modal');
+  if(p) p.style.display='none';
 }
 
 function _openAppSettings(){
@@ -4628,6 +5135,7 @@ function showQrPasteFallback(){
 }
 
 function closeQrScanner(){
+  _qrOpenGen++;
   try{ if(window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.BarcodeScanner){ Capacitor.Plugins.BarcodeScanner.stopScan(); } }catch(e){}
   try{ if(window._qrScanListener){ window._qrScanListener.remove(); window._qrScanListener=null; } }catch(e){}
   if(window._qrFocusIv){ clearInterval(window._qrFocusIv); window._qrFocusIv=null; }
@@ -4756,12 +5264,13 @@ function openSend(){
 }
 function selAsset(a,btn){sendAsset=a;document.querySelectorAll('#sh-send .pill').forEach(b=>b.classList.remove('active'));btn.classList.add('active');_updSendAvail();}
 function maxAmt(){
-  // Leave room for the network fee so MAX doesn't fail with "not enough money"
+  // MAX sends everything spendable: the wallet sweeps it and takes the exact fee out of it.
   var bal = W.balances[sendAsset]||0;
-  var v = Math.max(0, bal - _FEE_RESERVE);
-  document.getElementById('send-amt').value = v.toFixed(6);
+  var v = bal.toFixed(6);
+  document.getElementById('send-amt').value = v;
+  _sendMax = bal > 0 ? {asset:sendAsset, value:v} : null;
   var st = document.getElementById('send-status');
-  if(st && v > 0){ st.textContent = 'MAX leaves '+_FEE_RESERVE+' '+(sendAsset==='ZPH'?'ZEPH':sendAsset)+' for the network fee'; st.style.color='var(--muted)'; }
+  if(st && bal > 0){ st.textContent = 'MAX sends everything spendable. The exact fee is taken out and shown before you confirm.'; st.style.color='var(--muted)'; }
 }
 
 function openRecv(){
@@ -4916,13 +5425,16 @@ function txRow(tx, expandable){
   const sym = htmlEsc(tx.asset==='ZPH'?'ZEPH':tx.asset);
   const color = ASSET_COLOR[tx.asset]||'var(--accent)';
   const bg = ASSET_BG[tx.asset]||'rgba(99,72,255,0.18)';
-  const pending = tx.confirmed===false;
+  const failed = !!tx.failed;
+  const pending = !failed && tx.confirmed===false;
 
   const dtStr = _fmtDateTime(tx.timestamp);
 
   const usd = _balHidden() ? '••••' : fmtFiat(tx.amount*(((W.prices&&W.prices[tx.asset])||0)));
   const txidShort = tx.txid ? tx.txid.slice(0,8)+'...'+tx.txid.slice(-6) : '';
-  const pendingBadge = pending ? '<span style="font-size:9px;background:rgba(251,191,36,0.2);color:var(--yellow);border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:700">PENDING</span>' : '';
+  const statusBadge = failed
+    ? '<span style="font-size:9px;background:rgba(255,75,75,0.2);color:var(--coral);border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:700">FAILED</span>'
+    : (pending ? '<span style="font-size:9px;background:rgba(251,191,36,0.2);color:var(--yellow);border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:700">PENDING</span>' : '');
 
   const icon = isIn
     ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="'+color+'" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>'
@@ -4930,17 +5442,18 @@ function txRow(tx, expandable){
 
   // Sent txs always red, received green
   const amtColor = isIn ? 'var(--green)' : 'var(--coral)';
+  const amtStyle = failed ? 'color:'+amtColor+';opacity:0.7;text-decoration:line-through;' : 'color:'+amtColor+';';
   const amtStr = _balHidden() ? (isIn?'+':'-')+'••••••' : (tx.amount > 0 ? (isIn?'+':'-')+tx.amount.toFixed(6) : (isIn?'Received':'Sent'));
 
   const mainRow =
     '<div style="display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:14px 0">'+
       '<div class="ti" style="background:'+bg+'">'+icon+'</div>'+
       '<div style="flex:1;min-width:0">'+
-        '<div style="font-size:14px;font-weight:700;display:flex;align-items:center">'+(isIn?'Received':'Sent')+' <span style="color:'+color+';margin-left:5px">'+sym+'</span>'+pendingBadge+'</div>'+
+        '<div style="font-size:14px;font-weight:700;display:flex;align-items:center">'+(isIn?'Received':'Sent')+' <span style="color:'+color+';margin-left:5px">'+sym+'</span>'+statusBadge+'</div>'+
         '<div style="font-size:10px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+dtStr+'</div>'+
       '</div>'+
       '<div style="text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums">'+
-        '<div style="font-size:15px;font-weight:800;font-family:var(--mono);color:'+amtColor+';">'+amtStr+'</div>'+
+        '<div style="font-size:15px;font-weight:800;font-family:var(--mono);'+amtStyle+'">'+amtStr+'</div>'+
         '<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px">'+usd+'</div>'+
       '</div>'+
     '</div>';
@@ -4954,8 +5467,8 @@ function txRow(tx, expandable){
   // TX ID and the Block, with a placeholder when one isn't known yet (sent txs
   // have a txid but no block until mined; sync-derived txs have a block but the
   // balance callback doesn't give us a txid).
-  var _txidVal  = tx.txid ? htmlEsc(tx.txid) : (pending ? 'Pending — not yet confirmed' : 'Not available');
-  var _blockVal = tx.height ? 'Block '+String(tx.height).replace(/\B(?=(\d{3})+(?!\d))/g,',') : (pending ? 'Pending' : 'Not available');
+  var _txidVal  = tx.txid ? htmlEsc(tx.txid) : (failed ? 'Failed — transaction rejected' : (pending ? 'Pending — not yet confirmed' : 'Not available'));
+  var _blockVal = tx.height ? 'Block '+String(tx.height).replace(/\B(?=(\d{3})+(?!\d))/g,',') : (failed ? 'Failed' : (pending ? 'Pending' : 'Not available'));
   const detailBox =
     '<div class="tx-detail" style="display:none;background:var(--dim);border-radius:12px;padding:12px 14px 14px;margin:0 0 14px">'+
       '<div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">TX ID</div>'+
@@ -5054,11 +5567,14 @@ function seedPinKey(d){
 }
 async function _revealSeedAfterAuth(enteredPin){
   _seedRevealBuf='';
+  if(_locked) return;
   // Prefer in-memory; if it was wiped (e.g. after an auto-lock) recover from
   // the PIN-encrypted store; legacy SecStore key last.
   let mnemonic = (W.wallet&&W.wallet.mnemonic) || '';
   if(!mnemonic){ try{ mnemonic = await decryptMnemonic(enteredPin) || ''; }catch(e){} }
+  if(_locked) return;
   if(!mnemonic){ mnemonic = await SecStore.get('zw_mnemonic') || ''; }
+  if(_locked) return;
   if(mnemonic && mnemonic.trim()){
     if(W.wallet) W.wallet.mnemonic = mnemonic; // re-cache so sending works too
     renderSeed('seed-view', mnemonic);
@@ -5072,11 +5588,11 @@ async function _revealSeedAfterAuth(enteredPin){
 // ── CHANGE PIN (6 or 8 digits only) ──────────────────────────────────────────
 // Re-encrypts the stored seed + view key under the new PIN. Everything is checked first; if any
 // step fails the OLD PIN is written back, so a failed change can never lock you out.
-var _cpBuf='', _cpPhase=0, _cpOld='', _cpFirst='', _cpNewMode='pin6';
+var _cpBuf='', _cpPhase=0, _cpOld='', _cpFirst='', _cpNewMode='pin6', _cpBusy=false;
 function cpUpdSub(){ var e=document.getElementById('cp-sub'); if(!e) return; e.textContent = _pinLen()+' digits · tap to change'; }
 function cpOpen(){
   if(!W.wallet){ toast('No wallet'); return; }
-  _cpBuf=''; _cpPhase=0; _cpOld=''; _cpFirst='';
+  _cpBuf=''; _cpPhase=0; _cpOld=''; _cpFirst=''; _cpBusy=false;
   _cpNewMode = _pinMode()==='pin8' ? 'pin8' : 'pin6';
   document.getElementById('cp-mode-row').style.display='none';
   _showDots('chg-pd', _pinLen()); updDots('chg-dots','chg-pd','');
@@ -5084,47 +5600,51 @@ function cpOpen(){
   goPage('page-chg-pin');
   if(isPinLocked()) startPinLockCountdown(); else setPinKeypadEnabled(true);
 }
-function cpClose(){ _cpBuf=''; _cpOld=''; _cpFirst=''; _cpPhase=0; updDots('chg-dots','chg-pd',''); navTo('settings'); }
+function cpClose(){ _cpBuf=''; _cpOld=''; _cpFirst=''; _cpPhase=0; _cpBusy=false; updDots('chg-dots','chg-pd',''); navTo('settings'); }
 function cpMode(m){
-  _cpNewMode = (m==='pin8') ? 'pin8' : 'pin6'; _cpBuf=''; _cpFirst=''; _cpPhase=1;
+  _cpNewMode = (m==='pin8') ? 'pin8' : 'pin6'; _cpBuf=''; _cpFirst=''; _cpPhase=1; _cpBusy=false;
   document.querySelectorAll('#cp-mode-row .pill').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-mode')===_cpNewMode); });
   _showDots('chg-pd', _modeLen(_cpNewMode)); updDots('chg-dots','chg-pd','');
   setText('chg-label','Enter a new '+_modeLen(_cpNewMode)+'-digit PIN');
 }
-function cpDel(){ if(_cpBuf.length>0){ _cpBuf=_cpBuf.slice(0,-1); updDots('chg-dots','chg-pd',_cpBuf); } }
+function cpDel(){ if(_cpBusy) return; if(_cpBuf.length>0){ _cpBuf=_cpBuf.slice(0,-1); updDots('chg-dots','chg-pd',_cpBuf); } }
 function cpKey(d){
+  if(_cpBusy || _locked) return;
   if(_cpPhase===0 && isPinLocked()) return;
   var L = _cpPhase===0 ? _pinLen() : _modeLen(_cpNewMode);
   if(_cpBuf.length>=L) return;
   _cpBuf+=d; updDots('chg-dots','chg-pd',_cpBuf);
   if(_cpBuf.length!==L) return;
+  var v = _cpBuf, phase = _cpPhase;
+  _cpBusy = true;
   setTimeout(async function(){
-    var v=_cpBuf;
-    if(_cpPhase===0){
+    if(_locked){ _cpBusy = false; return; }
+    if(phase===0){
       setPinKeypadEnabled(false);
-      try{ await _beginPinAttempt(); }catch(e){ _cpBuf=''; updDots('chg-dots','chg-pd',''); startPinLockCountdown(); return; }
+      try{ await _beginPinAttempt(); }catch(e){ _cpBuf=''; _cpBusy=false; updDots('chg-dots','chg-pd',''); startPinLockCountdown(); return; }
       if(await verifyPin(v)){
-        await _clearLockout(); _cpOld=v; _cpBuf=''; _cpPhase=1;
+        await _clearLockout(); _cpOld=v; _cpBuf=''; _cpPhase=1; _cpBusy=false;
         document.getElementById('cp-mode-row').style.display='flex';
         cpMode(_cpNewMode);
       } else {
-        _pinFailFeedback('chg-pd','chg-dots','chg-label',function(){ _cpBuf=''; });
+        _pinFailFeedback('chg-pd','chg-dots','chg-label',function(){ _cpBuf=''; _cpBusy=false; });
+        if(_pinAttempts >= _WIPE_AT) _cpBusy = false;
       }
-    } else if(_cpPhase===1){
+    } else if(phase===1){
       if(v===_cpOld){ for(var i=0;i<8;i++){var x=document.getElementById('chg-pd'+i); if(x) x.className='pd err';}
-        setTimeout(function(){ _cpBuf=''; updDots('chg-dots','chg-pd',''); setText('chg-label','New PIN must be different — try again'); },700); return; }
+        setTimeout(function(){ _cpBuf=''; _cpBusy=false; updDots('chg-dots','chg-pd',''); setText('chg-label','New PIN must be different — try again'); },700); return; }
       if(isWeakPin(v)){
         for(var j=0;j<8;j++){var y=document.getElementById('chg-pd'+j); if(y) y.className='pd err';}
-        setTimeout(function(){ _cpBuf=''; updDots('chg-dots','chg-pd',''); setText('chg-label','Too easy to guess (like 123456) — pick another'); },700); return; }
-      _cpFirst=v; _cpBuf=''; _cpPhase=2; document.getElementById('cp-mode-row').style.display='none';
+        setTimeout(function(){ _cpBuf=''; _cpBusy=false; updDots('chg-dots','chg-pd',''); setText('chg-label','Too easy to guess (like 123456) — pick another'); },700); return; }
+      _cpFirst=v; _cpBuf=''; _cpPhase=2; _cpBusy=false; document.getElementById('cp-mode-row').style.display='none';
       updDots('chg-dots','chg-pd',''); setText('chg-label','Confirm your new PIN');
     } else {
       if(v!==_cpFirst){
         for(var k=0;k<8;k++){var z=document.getElementById('chg-pd'+k); if(z) z.className='pd err';}
-        setTimeout(function(){ _cpBuf=''; _cpFirst=''; _cpPhase=1; document.getElementById('cp-mode-row').style.display='flex'; cpMode(_cpNewMode); setText('chg-label',"PINs didn't match — enter a new PIN"); },800);
+        setTimeout(function(){ _cpBuf=''; _cpFirst=''; _cpPhase=1; _cpBusy=false; document.getElementById('cp-mode-row').style.display='flex'; cpMode(_cpNewMode); setText('chg-label',"PINs didn't match — enter a new PIN"); },800);
         return;
       }
-      await cpApply(_cpOld, v);
+      try{ await cpApply(_cpOld, v); }finally{ _cpBusy = false; }
     }
   },150);
 }
@@ -5174,18 +5694,42 @@ function shareAddr(){
 }
 function showRescanOptions(){
   const panel = document.getElementById('rescan-panel');
-  if(panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  if(!panel) return;
+  var opening = panel.style.display === 'none';
+  panel.style.display = opening ? 'block' : 'none';
+  // Pre-fill the wallet's start block: scanning from any later block hides older funds.
+  var inp = document.getElementById('rescan-height');
+  if(opening && inp && !inp.value && W.wallet && W.wallet.restoreHeight > 0) inp.value = W.wallet.restoreHeight;
 }
 function doRescanHeight(){
   var inp = document.getElementById('rescan-height');
   var h = parseInt((inp?inp.value:'')||'') || 0;
   if(!h){ toast('Enter a block height first'); inp && inp.focus(); return; }
+  var start = (W.wallet && W.wallet.restoreHeight) || 0;
+  if(start > 0 && h > start){
+    // Second tap within 10 s confirms (no browser dialogs in this WebView).
+    if(!(_rescanLateArm && _rescanLateArm.h === h && Date.now() - _rescanLateArm.t < 10000)){
+      _rescanLateArm = {h:h, t:Date.now()};
+      toast('Block ' + h.toLocaleString() + ' is after your wallet start (' + start.toLocaleString() + '). Funds received before it won\'t show. Tap again to continue.', 6000);
+      return;
+    }
+  }
+  _rescanLateArm = null;
   doRescan(false);
 }
+var _rescanLateArm = null;
 async function doRescan(fromZero){
   const inp = document.getElementById('rescan-height');
   var h = fromZero ? 0 : parseInt((inp?inp.value:'')||'') || 0;
   var label = h > 0 ? 'block ' + h.toLocaleString() : 'block 0';
+  // Native rescan: keeps the stored wallet (sent-tx keys, subaddresses), works after a fingerprint
+  // unlock, and the history is rebuilt from the wallet's records afterwards. Needs the wallet open
+  // and history-from-wallet on (the old history can't rebuild itself without the full rebuild).
+  var _P = (typeof _zwPlugin === 'function') ? _zwPlugin() : null;
+  if(_histFromWallet() && _walletOpen && _P && typeof _P.rescanWallet === 'function'){
+    if(await _nativeRescan(h, label)) return;
+    console.warn('[RESCAN] native rescan failed — falling back to rebuilding from the seed');
+  }
 
   // The native wallet is stored and reused on open, so a rescan has to remove it and rebuild
   // from the seed. The seed is only in memory after a PIN unlock (not fingerprint).
@@ -5249,6 +5793,43 @@ async function doRescan(fromZero){
     doBlockchainSync().finally(stopSyncUI);
   }, 300);
 }
+var _rescanBusy = false;
+async function _nativeRescan(h, label){
+  if(_rescanBusy) return true;
+  _rescanBusy = true;
+  _syncGen++; _syncAbort = true; _syncFailCount = 0;
+  clearTimeout(_nextSyncTimer);
+  try{ await pauseSync(); }catch(e){}
+  stopSyncUI();
+  var panel = document.getElementById('rescan-panel'); if(panel) panel.style.display = 'none';
+  navTo('home');
+  var _nd = document.getElementById('netdot'); if(_nd) _nd.className = 'nd nsync';
+  _netState = 'sync'; _netMsg = 'Rescanning...'; setSyncBlocks(0, 0); updatePillText();
+  toast('Rescanning from ' + label + ' — this can take a few minutes. Keep the app open.', 5000);
+  var ok = false;
+  try{
+    var r = await _wCmd('rescanWallet', {height: h});
+    if(_locked){ return true; }
+    console.log('[RESCAN] native rescan done, wallet height ' + (r && r.height));
+    W.scanHeight = (r && r.height) || W.scanHeight;
+    try{ await _rebuildHistoryFromWallet(); }catch(e){ console.warn('[RESCAN] history rebuild:', e && e.message); }
+    try{ await _applyNativeBalances(); }catch(e){}
+    _fixTsRan = false;
+    save(); try{ updBals(); renderRecentTxs(); renderAllTxs(); }catch(e){}
+    toast('Rescan complete', 3000);
+    ok = true;
+  }catch(e){
+    console.warn('[RESCAN] native rescan error:', e && e.message);
+    if(_locked) return true;
+  }finally{
+    _rescanBusy = false;
+    if(!_locked){
+      _syncAbort = false;
+      setTimeout(function(){ startSyncUI(); doBlockchainSync().finally(stopSyncUI); }, 300);
+    }
+  }
+  return ok;
+}
 function wipe(){
   // Show the styled confirmation modal
   var m = document.getElementById('wipe-confirm-modal');
@@ -5259,9 +5840,18 @@ function closeWipeModal(){
   if(m) m.style.display = 'none';
 }
 async function doWipe(opts){
+  // Dismiss all modals, sheets, QR scanner, and seed DOM immediately
+  closeSendConfirm(false);
+  closeQrScanner();
+  closeWipeModal();
+  closeCamPermModal();
+  document.querySelectorAll('.so.open').forEach(function(el){ el.classList.remove('open'); });
+  _abTarget = null;
+  _clearSeedDom();
   // Stop any in-flight sync FIRST so engine callbacks can't write back to cleared state
   _syncGen++;
   _syncAbort = true; _syncing = false; _activeSyncPromise = null; _syncFailCount = 0;
+  _daemonUnsynced = false;
   clearTimeout(_nextSyncTimer); _nextSyncTimer = null;
   clearInterval(_priceTimer); _priceTimer = null;
   clearInterval(_swRateTimer); _swRateTimer = null;
@@ -5283,6 +5873,9 @@ async function doWipe(opts){
   _pepperCache = null; _kdfCache = {};
   curWallet = null; _preGen = null;
   _sendPending = null; _swPending = null; _scAction = null;
+  _scPrep = null; _scPrepGen++; _sendMax = null;
+  _nTxMeta = null; _nTxMetaAt = 0; _expandedTxids = {};
+  _cpBuf = ''; _cpOld = ''; _cpFirst = ''; _cpPhase = 0; _cpBusy = false;
   // Clear every registered localStorage key plus any dynamic zw_* / _ss_* keys synchronously
   for(var li = 0; li < STORAGE_KEYS.local.length; li++){
     try{ localStorage.removeItem(STORAGE_KEYS.local[li]); }catch(e){}
@@ -5300,7 +5893,8 @@ async function doWipe(opts){
   // Reset runtime state & switch to onboarding immediately
   _bioAttemptedThisLock = false;
   window._qrBuilt = false; // force QR rebuild on next wallet import
-  W={wallet:null,_hasPinSet:false,nodeUrl:'https://node.zeph.network:443',balances:{ZPH:0,ZSD:0,ZRS:0,ZYS:0},lockedBals:{ZPH:0,ZSD:0,ZRS:0,ZYS:0},prices:{ZPH:0,ZSD:1.00,ZRS:0,ZYS:1.00},transactions:[],scanHeight:0};
+  W={wallet:null,_hasPinSet:false,nodeUrl:'https://node.lateo.dev:443',balances:{ZPH:0,ZSD:0,ZRS:0,ZYS:0},lockedBals:{ZPH:0,ZSD:0,ZRS:0,ZYS:0},prices:{ZPH:0,ZSD:1.00,ZRS:0,ZYS:1.00},transactions:[],scanHeight:0};
+  _locked = false;
   goPage('page-onboard');
   // Await native secure storage clear and warn if it fails
   var _secClearFailed = false;
@@ -5381,7 +5975,20 @@ let _lockTimer = null;
 
 function lockWallet(){
   if(!W.wallet || !W._hasPinSet) return;
+  _locked = true;
   console.log('[LIFECYCLE] Locking. scanHeight='+W.scanHeight);
+  // Dismiss all modals, sheets, camera scanner, and clear rendered seed words from DOM
+  closeSendConfirm(false);
+  closeQrScanner();
+  closeWipeModal();
+  closeCamPermModal();
+  var _shWipe = document.getElementById('sh-wipe');
+  if(_shWipe){ _shWipe.classList.remove('open'); _shWipe.style.display = 'none'; }
+  document.querySelectorAll('.so.open').forEach(function(el){ el.classList.remove('open'); });
+  _abTarget = null;
+  _clearSeedDom();
+  _sendMax = null;
+  _cpBuf = ''; _cpOld = ''; _cpFirst = ''; _cpPhase = 0; _cpBusy = false;
   _syncGen++;
   _syncAbort = true;
   clearTimeout(_nextSyncTimer);
@@ -5404,6 +6011,7 @@ function lockWallet(){
 }
 
 function resumeAfterUnlock(){
+  _ensureBgService();
   _syncGen++;
   _syncAbort = false;
   _syncFailCount = 0;
@@ -5419,11 +6027,9 @@ function onAppBackground(){
   _bgTime = Date.now();
   save();
 
-  if(_bgSyncEnabled){
-    console.log('[LIFECYCLE] Backgrounded (bg sync ON). scanHeight='+W.scanHeight);
-    _lockTimer = setTimeout(lockWallet, 300000);
-    return;
-  }
+  // With Background Sync on, the native service takes over syncing; the page stops its own sync
+  // and the app locks on the normal schedule either way.
+  if(_bgSyncEnabled) console.log('[LIFECYCLE] Backgrounded — background service syncs. scanHeight='+W.scanHeight);
 
   _syncAbort = true;
   clearTimeout(_nextSyncTimer);
@@ -5437,7 +6043,7 @@ function onAppForeground(){
   // Check elapsed wall time BEFORE clearing _lockTimer so Android WebView timer throttling
   // can never bypass auto-lock on foreground resume.
   var elapsed = _bgTime ? (Date.now() - _bgTime) : 0;
-  var threshold = _bgSyncEnabled ? 300000 : 5000;
+  var threshold = 5000;
   var shouldLock = !!(_bgTime && elapsed >= threshold);
   _bgTime = 0;
   if(_lockTimer){ clearTimeout(_lockTimer); _lockTimer = null; }
@@ -5531,7 +6137,7 @@ function _navSync(pageId){
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SWAP: convert between Zephyr assets, laid out like the Zephyr web wallet.
-// Same native createTxs call as Send, with a different destinationCurrency and
+// Same native prepareTxs + relayPrepared calls as Send, with a different destinationCurrency and
 // (by default) this wallet's own address as the destination.
 // ══════════════════════════════════════════════════════════════════════════════
 var SW_ASSETS = {
@@ -5573,10 +6179,28 @@ function _swIco(a){
 }
 function _swShort(addr){ addr = String(addr || ''); return addr.length > 12 ? addr.slice(0,4) + '....' + addr.slice(-4) : addr; }
 function _swFmt(v){ v = Number(v) || 0; var s = v.toFixed(6).replace(/0+$/,''); var d = s.split('.')[1] || ''; return d.length < 2 ? v.toFixed(2) : s; }
-function _swRate(){ // how many swTo you get for 1 swFrom at spot, 0 if unknown
-  var p = W.prices || {}, pf = Number(p[swFrom]), pt = Number(p[swTo]);
-  return (isFinite(pf) && isFinite(pt) && pf > 0 && pt > 0) ? pf/pt : 0;
+// How many swTo you get for 1 swFrom: {spot, ma, used} (0 = unknown). Zephyr converts at the
+// WORSE of the spot and 24 h moving-average rate for the user (fewer coins out), so 'used' is
+// the lower of the two. ZSD<->ZYS has a single (yield) rate.
+function _swRates(from, to){
+  from = from || swFrom; to = to || swTo;
+  var R = W.rates || {}, sp = 0, ma = 0;
+  function n(k){ var v = Number(R[k]); return (isFinite(v) && v > 0) ? v : 0; }
+  function inv(v){ return v > 0 ? 1/v : 0; }
+  if(from==='ZPH' && to==='ZSD'){ sp = inv(n('stable'));  ma = inv(n('stableMa')); }
+  else if(from==='ZSD' && to==='ZPH'){ sp = n('stable');  ma = n('stableMa'); }
+  else if(from==='ZPH' && to==='ZRS'){ sp = inv(n('reserve')); ma = inv(n('reserveMa')); }
+  else if(from==='ZRS' && to==='ZPH'){ sp = n('reserve'); ma = n('reserveMa'); }
+  else if(from==='ZSD' && to==='ZYS'){ sp = inv(n('yield')); ma = sp; }
+  else if(from==='ZYS' && to==='ZSD'){ sp = n('yield');  ma = sp; }
+  if(!sp){                                       // no rates yet: spot from the USD prices
+    var p = W.prices || {}, pf = Number(p[from]), pt = Number(p[to]);
+    sp = (isFinite(pf) && isFinite(pt) && pf > 0 && pt > 0) ? pf/pt : 0;
+  }
+  var used = (sp > 0 && ma > 0) ? Math.min(sp, ma) : sp;
+  return {spot:sp, ma:ma, used:used};
 }
+function _swRate(){ return _swRates().used; }   // the rate the network will use (best estimate)
 function _swStatus(msg, color){ var s = document.getElementById('sw-status'); if(s){ s.textContent = msg || ''; s.style.color = color || 'var(--muted)'; } }
 function _swSetTxt(id, main, sub){
   var el = document.getElementById(id); if(!el) return;
@@ -5598,15 +6222,37 @@ function swRefresh(){
   if(fi) fi.src = _swIco(swFrom); if(ti) ti.src = _swIco(swTo);
   _swSetTxt('sw-from-txt', f.name, f.tk); _swSetTxt('sw-to-txt', t.name, t.tk);
   // Conversion fee is always paid in the source asset (f.tk), not destination
-  setText('sw-i-from', f.tk); setText('sw-i-to', t.tk); setText('sw-i-fee', f.tk);
+  setText('sw-i-fee', f.tk);
   var bal = (W.balances && W.balances[swFrom]) || 0;
   setText('sw-amt-lbl', 'From Amount (Avail: ' + (_balHidden() ? '••••••' : _swFmt(bal)) + ')');
   var cur = _swSrcList().filter(function(x){ return x.i === swSrc; })[0];
   if(!cur){ swSrc = -1; }
   if(swSrc === -1) _swSetTxt('sw-src-txt', 'All Addresses', '(Default)'); else _swSetTxt('sw-src-txt', cur.main, cur.sub);
-  var r = _swRate();
   // As the web wallet shows it: 1 of the asset you receive, priced in the asset you spend
-  setText('sw-rate', (swFrom === swTo) ? '—' : (r > 0 ? ('1 ' + t.tk + ' : ' + (1/r).toFixed(4) + ' ' + f.tk) : 'Waiting for prices…'));
+  var rs = _swRates();
+  function rateTxt(v){ return v > 0 ? ('1 ' + t.tk + ' : ' + (1/v).toFixed(4) + ' ' + f.tk) : '—'; }
+  setText('sw-rate', (swFrom === swTo) ? '—' : (rs.spot > 0 ? rateTxt(rs.spot) : 'Waiting for prices…'));
+  setText('sw-rate-ma', (swFrom === swTo) ? '—' : (rs.ma > 0 ? rateTxt(rs.ma) : '—'));
+  var R = W.rates || {}, rr = Number(R.rr), rrm = Number(R.rrMa);
+  function pct(v){ return (isFinite(v) && v > 0 && v < 1000) ? Math.round(v*100) + '%' : '—'; }
+  setText('sw-rr', pct(rr) + ' / ' + pct(rrm));
+  _swGetRows();
+}
+// "You get" at spot and at the 24 h average for the amount entered; the lower one is what the
+// network uses, marked with a check.
+function _swGetRows(){
+  var t = SW_ASSETS[swTo], fa = document.getElementById('sw-amt');
+  var v = parseFloat(fa && fa.value) || 0, rs = (swFrom === swTo) ? {spot:0, ma:0, used:0} : _swRates();
+  function cell(id, rate){
+    var el = document.getElementById(id); if(!el) return;
+    el.textContent = (v > 0 && rate > 0) ? (v*rate).toFixed(6) + ' ' + t.tk : '—';
+    var used = v > 0 && rate > 0 && rs.spot > 0 && rs.ma > 0 && rs.spot !== rs.ma && rate === rs.used;
+    el.style.color = used ? 'var(--light)' : '';
+    el.style.fontWeight = used ? '700' : '';
+    if(used){ var m = document.createElement('span'); m.textContent = ' ✓'; m.style.color = 'var(--green, #3ecf8e)'; el.appendChild(m); }
+  }
+  cell('sw-get-spot', rs.spot);
+  cell('sw-get-ma', rs.ma);
 }
 document.addEventListener('click', function(e){ try{ if(!e.target.closest('.sw-sel') && !e.target.closest('.sw-menu')) swCloseMenus(); }catch(_){} });
 // Live rate: prices come from the oracle record in the node's newest block. Refresh when the
@@ -5617,8 +6263,20 @@ function _swLiveTick(){
   if(!_swVisible()){ clearInterval(_swRateTimer); _swRateTimer = null; return; }
   try{ Promise.resolve(fetchPrices()).then(function(){ if(_swVisible() && !_swBusy) _swRecalc('from'); }).catch(function(){}); }catch(e){}
 }
+var _swRsvGen = 0;
+function _swCheckReserveUpfront(){
+  var gen = ++_swRsvGen, from = swFrom, to = swTo;
+  if(_swBusy) return;
+  _swapReserveCheck(from, to).then(function(rsv){
+    if(gen !== _swRsvGen || _swBusy || swFrom !== from || swTo !== to) return;
+    if(rsv && rsv.block){
+      _swStatus('⚠️ ' + rsv.msg + ' The network will reject this conversion right now.', 'var(--coral)');
+    }
+  }).catch(function(){});
+}
 function swOpen(){
   swCloseMenus(); swRefresh(); _swRecalc('from'); if(!_swBusy) _swStatus('');
+  _swCheckReserveUpfront();
   clearInterval(_swRateTimer); _swRateTimer = setInterval(_swLiveTick, 60000); _swLiveTick();
 }
 function swCloseMenus(){ ['from','to','src'].forEach(function(s){ var m = document.getElementById('sw-'+s+'-menu'); if(m) m.style.display = 'none'; }); }
@@ -5652,6 +6310,7 @@ function swPick(side, a){
     swTo = a;
   }
   swCloseMenus(); swRefresh(); _swRecalc('from'); _swStatus('');
+  _swCheckReserveUpfront();
 }
 function _swRecalc(edited){
   var fa = document.getElementById('sw-amt'), ta = document.getElementById('sw-to-amt'); if(!fa || !ta) return;
@@ -5661,6 +6320,7 @@ function _swRecalc(edited){
     var w = parseFloat(ta.value) || 0;
     fa.value = (w > 0 && r > 0) ? (Math.floor((w/r) * 10000) / 10000).toFixed(4) : '';
   }
+  _swGetRows();
 }
 function swOnAmt(el){
   var raw = String(el.value || '');
@@ -5682,7 +6342,7 @@ function swMax(){
   if(v4 > 0) _swStatus('MAX leaves ' + _FEE_RESERVE + ' ' + SW_ASSETS[swFrom].tk + ' for the network fee (4 decimals max for conversions)');
 }
 async function swPreview(){
-  if(_swBusy || _sending) return;
+  if(_swBusy || _sending || _locked) return;
   var f = SW_ASSETS[swFrom], t = SW_ASSETS[swTo];
   var amtRaw = (document.getElementById('sw-amt').value || '').trim();
   var addr = (document.getElementById('sw-addr').value || '').replace(/\s+/g,'');
@@ -5704,7 +6364,11 @@ async function swPreview(){
     _swStatus('Amount rounded down to 4 decimal places (' + roundedStr + ' ' + f.tk + ') for conversion.');
   }
   if(addr && !isValidZephyrAddress(addr)){ _swStatus('❌ Recipient is not a valid Zephyr address', 'var(--coral)'); return; }
-  if(addr){ var _ac = await _checkAddr(addr); if(!_ac.valid){ _swStatus('❌ Recipient address checksum is wrong — a character is mistyped', 'var(--coral)'); return; } }
+  if(addr){
+    var _ac = await _checkAddr(addr);
+    if(_swBusy || _sending || _locked) return;
+    if(!_ac.valid){ _swStatus('❌ Recipient address checksum is wrong — a character is mistyped', 'var(--coral)'); return; }
+  }
   if(!W.wallet || !W.wallet.address){ _swStatus('❌ Wallet not ready', 'var(--coral)'); return; }
   var avail = (W.balances && W.balances[swFrom]) || 0, lk = _lockedOf(swFrom);
   if(amt > avail){
@@ -5721,12 +6385,12 @@ async function swPreview(){
   }
   if(!_useWorker || W.scanHeight === 0){ _swStatus('❌ Please sync first', 'var(--coral)'); return; }
   var _rsv = await _swapReserveCheck(swFrom, swTo);
-  if(_swBusy || _sending) return;
+  if(_swBusy || _sending || _locked) return;
   if(_rsv && _rsv.block){ _swStatus('❌ ' + _rsv.msg + ' The network would reject this conversion right now.', 'var(--coral)'); return; }
   if(_rsv){ _swStatus('⚠️ ' + _rsv.msg + ' The network may reject this conversion.', 'var(--coral)'); }
   var r = _swRate(), est = r > 0 ? (amt*r) : 0;
   _swPending = { from:swFrom, to:swTo, amtRaw:amtRaw, amt:amt, addr:(addr || W.wallet.address), own:!addr, est:est, src:swSrc };
-  _scTexts('Confirm Swap', 'Conversions are irreversible. The amount shown is an estimate at the spot rate; the network sets the final amount and fee.', addr ? 'Send converted funds to' : 'Receive to');
+  _scTexts('Confirm Swap', 'Conversions are irreversible. The fee below is exact. The converted amount is an estimate at the less favourable of the spot and 24h average rates, which is what the network uses; the final rate is set when the transaction is mined.', addr ? 'Send converted funds to' : 'Receive to');
   setText('sc-amt', amt.toFixed(4) + ' ' + f.tk + '  →  ' + (est > 0 ? '≈ ' + est.toFixed(6) + ' ' : '') + t.tk);
   setText('sc-addr', addr ? addr : 'This wallet (primary address)');
   var authLbl = document.getElementById('sc-auth-label'); if(authLbl) authLbl.textContent = 'Enter ' + _authNoun() + ' to authorize';
@@ -5737,11 +6401,40 @@ async function swPreview(){
   if(warn) warn.style.display = (nu.indexOf('http://') === 0 && !isPrivate) ? 'block' : 'none';
   _scAction = _executeSwap;
   document.getElementById('send-confirm-modal').style.display = 'flex';
+  // Build the conversion now (not broadcast) to show the exact fee before the PIN.
+  var q = _swPending;
+  var cfgObj = { accountIndex:0, destinations:[{address:q.addr, amount: roundDownSwapAtoms(toAtoms(amtRaw)).toString()}],
+                 sourceCurrency:q.from, destinationCurrency:q.to };
+  if(q.src >= 0) cfgObj.subaddressIndices = [q.src];
+  try{
+    var pr = await _scPrepare(cfgObj, false);
+    if(!pr || _swPending !== q) return;
+    q.prep = pr;
+    // The wallet's own figure for what comes back, used only if it agrees with the network-rate
+    // estimate (within 10%); anything else is ignored and the estimate stays.
+    var _mintN = (pr.minted != null && pr.minted > 0n) ? fromAtoms(pr.minted.toString()) : 0;
+    if(_mintN > 0 && q.est > 0 && Math.abs(_mintN - q.est) / q.est <= 0.10){
+      setText('sc-amt', q.amt.toFixed(4) + ' ' + f.tk + '  →  ' + _atomsFmt(pr.minted) + ' ' + t.tk);
+      setText('sc-sub', 'Conversions are irreversible. The converted amount comes from the built transaction; the network fee below is exact.');
+    } else if(_mintN > 0){
+      console.warn('[SWAP] wallet quote ignored (estimate ' + q.est + ', wallet ' + _mintN + ')');
+    }
+    _scFeeRows(_atomsFmt(pr.fee)+' '+f.tk, _atomsFmt(pr.amount + pr.fee)+' '+f.tk, 'Total '+f.tk+' leaving wallet');
+    _scSetStatus(pr.count > 1 ? 'This swap needs '+pr.count+' transactions (fee shown is the total).' : '', 'var(--muted)');
+  }catch(e){
+    if(_swPending !== q) return;
+    _scFeeRows('—', '—');
+    _scSetStatus('❌ '+_spendFailMsg(e && e.message, q.from, {swap:true, src:q.src}), 'var(--coral)');
+  }
 }
 async function _executeSwap(){
   var q = _swPending; _swPending = null;
-  if(!q || _swBusy || _sending) return;
+  if(!q || _swBusy || _sending){ if(q && q.prep) _discardPrep(); return; }
+  var prep = q.prep; _scPrep = null;
+  if(!prep || !prep.token){ _discardPrep(); _swStatus('❌ Review the swap again', 'var(--coral)'); return; }
+  if(_locked){ _discardPrep(); return; }
   if(!isValidSwapPair(q.from, q.to)){
+    _discardPrep();
     _swStatus('❌ Unsupported conversion pair — valid pairs are ZEPH↔ZSD, ZEPH↔ZRS, and ZSD↔ZYS', 'var(--coral)');
     return;
   }
@@ -5749,6 +6442,7 @@ async function _executeSwap(){
   var avail = (W.balances && W.balances[q.from]) || 0;
   var atomsBig = roundDownSwapAtoms(toAtoms(q.amtRaw || q.amt));
   if(atomsBig <= 0n){
+    _discardPrep();
     _swStatus('❌ Enter at least 0.0001 ' + f.tk + ' (conversions allow at most 4 decimal places)', 'var(--coral)');
     return;
   }
@@ -5757,25 +6451,27 @@ async function _executeSwap(){
   if(btn){ btn.disabled = true; btn.textContent = 'Swapping...'; }
   _swStatus('⏳ Converting ' + q.amt.toFixed(4) + ' ' + f.tk + ' to ' + t.tk + '...');
   // Show it at once as a pending outgoing row; removed again if the conversion fails
-  var _optTx = {type:'out', asset:q.from, amount:q.amt, timestamp:Math.floor(Date.now()/1000), txid:'pending'+Date.now(), confirmed:false, swapTo:q.to};
+  var _feeN = fromAtoms(prep.fee.toString());
+  var _optTx = {type:'out', asset:q.from, amount:q.amt, fee:_feeN, _feeExact:true, timestamp:Math.floor(Date.now()/1000), txid:'pending'+Date.now(), confirmed:false, swapTo:q.to};
   W.transactions.unshift(_optTx);
-  W.balances[q.from] = Math.max(0, avail - q.amt);
+  W.balances[q.from] = Math.max(0, avail - q.amt - _feeN);
   try{save();}catch(e){} try{updBals();}catch(e){} try{renderRecentTxs();}catch(e){} try{renderAllTxs();}catch(e){}
   _syncAbort = true; clearTimeout(_nextSyncTimer);
+  var _relayAttempted = false;
   try{
     await pauseSync();
-    var atoms = atomsBig.toString();
-    var cfgObj = {
-      accountIndex:0,
-      destinations:[{address:q.addr, amount:atoms}],   // amount is in the asset being spent (multiple of 10^8)
-      sourceCurrency:q.from,
-      destinationCurrency:q.to,
-      relay:true
-    };
-    if(q.src >= 0) cfgObj.subaddressIndices = [q.src];  // "From Address": spend from this address only
-    console.log('[SWAP] ' + atoms + ' atoms ' + q.from + ' -> ' + q.to + (q.own ? ' (own address)' : ' (other address)') + (q.src >= 0 ? ' from #' + q.src : ''));
-    var nodeUrl = fixNodeUrl(W.nodeUrl || 'https://node.zeph.network:443');
-    var result = await _wCmd('createTxs', {txConfigJson:JSON.stringify(cfgObj), nodeUrl:nodeUrl});
+    if(_locked){
+      _discardPrep();
+      var _oiL = W.transactions.indexOf(_optTx);
+      if(_oiL >= 0) W.transactions.splice(_oiL, 1);
+      W.balances[q.from] = avail;
+      try{save();}catch(_){} try{updBals();}catch(_){} try{renderRecentTxs();}catch(_){} try{renderAllTxs();}catch(_){}
+      return;
+    }
+    console.log('[SWAP] relay ' + prep.amount + ' atoms ' + q.from + ' -> ' + q.to + ' fee ' + prep.fee + (q.own ? ' (own address)' : ' (other address)') + (q.src >= 0 ? ' from #' + q.src : ''));
+    var nodeUrl = fixNodeUrl(W.nodeUrl || 'https://node.lateo.dev:443');
+    _relayAttempted = true;
+    var result = await _withTimeout(_wCmd('relayPrepared', {token:prep.token, nodeUrl:nodeUrl}), 90000);
     var txs = (result && result.txs) || [];
     if(!txs.length) throw new Error('The wallet returned no transaction, nothing was converted');
     var hash = (txs[0] && (txs[0].hash || txs[0].txid || txs[0].id)) || '';
@@ -5788,6 +6484,27 @@ async function _executeSwap(){
     setTimeout(function(){ if(expireStalePending()){ renderRecentTxs(); renderAllTxs(); } }, 20*60*1000+4000);
     [15000,45000,90000,180000].forEach(function(ms){ setTimeout(function(){ refreshSentTxStatus(); }, ms); });
   }catch(e){
+    var _postCheck = _relayAttempted ? await _verifyPostRelayError(e, _optTx, q.from, q.amt, prep) : { status: 'failed' };
+    if(_postCheck.status === 'broadcast'){
+      _optTx.txid = _postCheck.hash || _optTx.txid;
+      var faB = document.getElementById('sw-amt'), taB = document.getElementById('sw-to-amt'), adB = document.getElementById('sw-addr');
+      if(faB) faB.value = ''; if(taB) taB.value = ''; if(adB) adB.value = '';
+      _swStatus('✅ Swap submitted. ' + t.tk + ' arrives after the next block and unlocks in about 20 minutes.', 'var(--green)');
+      toast('✅ Swapping ' + q.amt.toFixed(4) + ' ' + f.tk + ' → ' + t.tk, 4000);
+      try{save();}catch(_){} try{renderRecentTxs();}catch(_){} try{renderAllTxs();}catch(_){}
+      [15000,45000,90000,180000].forEach(function(ms){ setTimeout(function(){ refreshSentTxStatus(); }, ms); });
+      return;
+    }
+    if(_postCheck.status === 'uncertain'){
+      // Keep the pending row and deducted balance so the user does not double-spend.
+      try{save();}catch(_){} try{updBals();}catch(_){} try{renderRecentTxs();}catch(_){} try{renderAllTxs();}catch(_){}
+      var _uMsg = 'Broadcast status uncertain — wait for sync before retrying';
+      _swStatus('⚠️ ' + _uMsg, 'var(--yellow)');
+      toast(_uMsg, 6000);
+      [15000,45000,90000].forEach(function(ms){ setTimeout(function(){ refreshSentTxStatus(); }, ms); });
+      console.warn('swap uncertain relay:', e);
+      return;
+    }
     var oi = W.transactions.indexOf(_optTx); if(oi >= 0) W.transactions.splice(oi, 1);
     W.balances[q.from] = avail;
     try{save();}catch(e2){} try{updBals();}catch(e2){} try{renderRecentTxs();}catch(e2){} try{renderAllTxs();}catch(e2){}
@@ -5798,7 +6515,7 @@ async function _executeSwap(){
         ? (_balHidden()
             ? 'Not enough spendable funds — part of your balance is still unlocking (≈20 min). Wait a bit or swap a smaller amount.'
             : 'Not enough spendable funds — ' + (lkE > 0.000001 ? lkE.toFixed(6) + ' is' : 'part of your balance is') + ' still unlocking (≈20 min). Wait a bit or swap a smaller amount.')
-        : 'Not enough to cover amount + network fee' + (q.src >= 0 ? ' from the chosen address' : '') + ' — lower the amount by ~' + _FEE_RESERVE + ', or tap MAX.';
+        : 'Not enough to cover amount + network fee' + (q.src >= 0 ? ' from the chosen address' : '') + ' — lower the amount a little, or tap MAX.';
     } else {
       msg = _formatWalletError(msg);
     }
@@ -5808,8 +6525,7 @@ async function _executeSwap(){
   }finally{
     _swBusy = false; _sending = false;
     if(btn){ btn.disabled = false; btn.textContent = 'Preview'; }
-    _syncAbort = false;
-    resumeBackgroundSync();
+    if(!_locked){ _syncAbort = false; resumeBackgroundSync(); }
     try{ swRefresh(); }catch(e){}
   }
 }

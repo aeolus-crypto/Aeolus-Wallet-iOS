@@ -11,7 +11,7 @@ import CryptoKit
 ///   verifier = "v2$" + iterations + "$" + base64(token)      (PinVerifier.java, index.html hashPin)
 ///
 /// Failures share one limiter: 5 free tries, then 30 s doubling up to 1 h.
-/// A successful authorizeSend allows ONE createTxs within 180 s.
+/// A successful authorizeSend allows ONE relayPrepared within 180 s.
 enum NativeAuth {
     static let keychain = Keychain(service: "com.aeolus.wallet.nativeauth")
     static let iterations = 600_000
@@ -137,6 +137,12 @@ enum NativeAuth {
         let ok = Date() < authUntil
         authUntil = .distantPast
         return ok
+    }
+
+    /// A new send is being built or one was dropped: an earlier PIN entry must not carry over.
+    static func disarm() {
+        lock.lock(); defer { lock.unlock() }
+        authUntil = .distantPast
     }
 
     /// Wallet wipe: forget the send PIN too.
