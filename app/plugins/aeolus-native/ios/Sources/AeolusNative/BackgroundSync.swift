@@ -76,6 +76,40 @@ enum BgState {
     }
 }
 
+// MARK: - Background Sync's own log (Settings -> Email Debug Log puts it at the top)
+
+/// What the watcher did while the app was closed and why a payment did or did not notify: times,
+/// counts, block heights, node host, reasons. Never an amount, an address or a transaction id.
+/// Last 120 lines, as Android's WalletSyncService log; cleared when the wallet is deleted.
+enum BgLog {
+    private static let key = "aeolus.bg.log"
+    private static let lock = NSLock()
+    private static let max = 120
+
+    /// dedupe: skip when the previous line says the same (for messages repeated on every app switch).
+    static func add(_ message: String, dedupe: Bool = false) {
+        lock.lock(); defer { lock.unlock() }
+        var lines = UserDefaults.standard.stringArray(forKey: key) ?? []
+        if dedupe, let last = lines.last, last.hasSuffix("  " + message) { return }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MM-dd HH:mm:ss"
+        lines.append(f.string(from: Date()) + "  " + message)
+        if lines.count > max { lines.removeFirst(lines.count - max) }
+        UserDefaults.standard.set(lines, forKey: key)
+    }
+
+    static func read() -> String {
+        lock.lock(); defer { lock.unlock() }
+        return (UserDefaults.standard.stringArray(forKey: key) ?? []).joined(separator: "\n")
+    }
+
+    static func clear() {
+        lock.lock(); defer { lock.unlock() }
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
 // MARK: - the watch wallet's files
 
 /// The view-only watch wallet: keys.bin / cache.bin (encrypted by the core with a random password) in
@@ -181,6 +215,17 @@ final class RunOnce: @unchecked Sendable {
     }
 }
 
+private final class FailCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func bump() { lock.lock(); n += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return n }
+}
+
+private final class StatusBox: @unchecked Sendable {
+    var value: UNAuthorizationStatus = .notDetermined
+}
+
 private final class HeightBox: @unchecked Sendable {
     var value: UInt64?
 }
@@ -245,12 +290,45 @@ public enum AeolusBackground {
         guard BgState.enabled, BgState.alerts else { return }
         let r = BGAppRefreshTaskRequest(identifier: refreshID)
         r.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-        try? s.submit(r)
         let p = BGProcessingTaskRequest(identifier: processingID)
         p.requiresNetworkConnectivity = true
         p.requiresExternalPower = false
         p.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 60)
-        try? s.submit(p)
+        var failed: [String] = []
+        do { try s.submit(r) } catch { failed.append("refresh: \(error.localizedDescription)") }
+        do { try s.submit(p) } catch { failed.append("processing: \(error.localizedDescription)") }
+        if failed.isEmpty {
+            BgLog.add("wake-ups requested from iOS (refresh after 15 min, processing after 1 h)", dedupe: true)
+        } else {
+            BgLog.add("iOS refused the wake-up request · " + failed.joined(separator: " · "), dedupe: true)
+        }
+    }
+
+    /// One line for the debug log: switches, watch wallet, start height and what iOS allows.
+    static func stateLine(refresh: UIBackgroundRefreshStatus, notifications: UNAuthorizationStatus,
+                          lowPower: Bool) -> String {
+        let from = BgState.notifyFrom == Int64.max ? "not pinned yet" : String(BgState.notifyFrom)
+        let r: String
+        switch refresh {
+        case .available: r = "on"
+        case .denied: r = "OFF"
+        case .restricted: r = "restricted"
+        @unknown default: r = "?"
+        }
+        let n: String
+        switch notifications {
+        case .authorized: n = "allowed"
+        case .denied: n = "DENIED"
+        case .notDetermined: n = "not asked"
+        case .provisional: n = "provisional"
+        case .ephemeral: n = "ephemeral"
+        @unknown default: n = "?"
+        }
+        return "Background Sync=\(BgState.enabled ? "on" : "off") alerts=\(BgState.alerts ? "on" : "off")"
+            + " watchWallet=\(WatchStore().hasWallet ? "yes" : "no") alertsFromBlock=\(from)"
+            + " seen=\(BgState.seen.count) ownSends=\(BgState.own.count)"
+            + " backgroundAppRefresh=\(r) notifications=\(n) lowPowerMode=\(lowPower ? "ON" : "off")"
+            + " engineSelfTest=\(BgState.engineOK == engineVersion ? "passed" : "not yet")"
     }
 
     private static func cancelTasks() {
@@ -274,13 +352,20 @@ public enum AeolusBackground {
         if fromNow {
             guard let src = source else { throw Engine.Failure(message: "Open your wallet first") }
             guard refresh == .available else {
+                BgLog.add("switching ON refused: Background App Refresh is off or Low Power Mode is on")
                 throw Engine.Failure(message: "Turn on Background App Refresh for Aeolus (Settings → General → Background App Refresh) and turn off Low Power Mode, then try again")
             }
-            try createWatchWallet(source: src)
+            do {
+                try createWatchWallet(source: src)
+            } catch {
+                BgLog.add("switching ON failed: \(Engine.message(error))")
+                throw error
+            }
             BgState.enabled = true
+            BgLog.add("Background Sync switched ON · alerts from block \(BgState.notifyFrom)")
             if BgState.alerts { requestNotificationPermission() }
         } else if BgState.enabled, let src = source, !WatchStore().hasWallet {
-            _ = try? createWatchWallet(source: src)
+            rebuildWatchWallet(src, why: "missing at unlock")
         }
         scheduleIfEnabled()
         return ["ok": true, "active": BgState.enabled && BgState.alerts]
@@ -290,8 +375,9 @@ public enum AeolusBackground {
     static func setAlerts(_ on: Bool, source: Source?) {
         let was = BgState.alerts
         BgState.alerts = on
+        if on != was { BgLog.add("Payment Alerts switched \(on ? "ON" : "OFF")") }
         if on && !was && BgState.enabled {
-            if let src = source { _ = try? createWatchWallet(source: src) } else { BgState.notifyFrom = Int64.max }
+            if let src = source { rebuildWatchWallet(src, why: "alerts back on") } else { BgState.notifyFrom = Int64.max }
             requestNotificationPermission()
         }
         scheduleIfEnabled()
@@ -300,7 +386,16 @@ public enum AeolusBackground {
     /// The wallet was opened: rebuild a missing watch wallet (after a failed run, say).
     static func walletOpened(_ source: Source) {
         guard BgState.enabled, !WatchStore().hasWallet else { return }
-        _ = try? createWatchWallet(source: source)
+        rebuildWatchWallet(source, why: "missing when the wallet opened")
+    }
+
+    private static func rebuildWatchWallet(_ source: Source, why: String) {
+        do {
+            try createWatchWallet(source: source)
+            BgLog.add("watch wallet rebuilt (\(why)) · alerts from block \(BgState.notifyFrom)")
+        } catch {
+            BgLog.add("watch wallet rebuild failed (\(why)): \(Engine.message(error))")
+        }
     }
 
     /// The page relayed a send or swap: its change is not a payment.
@@ -311,6 +406,7 @@ public enum AeolusBackground {
 
     /// Background Sync switched off.
     static func stop() {
+        if BgState.enabled { BgLog.add("Background Sync switched OFF · watch wallet deleted") }
         bump()
         BgState.enabled = false
         cancelTasks()
@@ -323,6 +419,7 @@ public enum AeolusBackground {
     static func wipeAll() {
         stop()
         BgState.clear()
+        BgLog.clear()
     }
 
     /// Builds the view-only watch wallet at the current chain tip and stores it. Needs the node, because
@@ -362,6 +459,7 @@ public enum AeolusBackground {
     private static func notify(count: Int, ids: [String]) {
         let center = UNUserNotificationCenter.current()
         let group = DispatchGroup()
+        let failures = FailCount()
         func post(_ id: String, _ body: String) {
             let c = UNMutableNotificationContent()
             c.title = "Aeolus"
@@ -370,7 +468,10 @@ public enum AeolusBackground {
             c.threadIdentifier = "aeolus.payments"
             c.interruptionLevel = .active
             group.enter()
-            center.add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { _ in group.leave() }
+            center.add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { err in
+                if err != nil { failures.bump() }
+                group.leave()
+            }
         }
         if count <= 3 {
             for h in ids { post("aeolus.pay." + String(h.prefix(16)), "Payment received") }
@@ -378,15 +479,28 @@ public enum AeolusBackground {
             post("aeolus.pay.batch." + String(Int(Date().timeIntervalSince1970)), "\(count) payments received")
         }
         _ = group.wait(timeout: .now() + 5)
+        let sem = DispatchSemaphore(value: 0)
+        let status = StatusBox()
+        center.getNotificationSettings { st in status.value = st.authorizationStatus; sem.signal() }
+        _ = sem.wait(timeout: .now() + 2)
+        if failures.value > 0 {
+            BgLog.add("payment notification FAILED (\(failures.value) of \(count))")
+        } else if status.value == .denied {
+            BgLog.add("payment found but notifications are turned off for Aeolus in iOS Settings")
+        } else {
+            BgLog.add("payment notification posted (\(count))")
+        }
     }
 
     // MARK: a wake-up
 
     private static func handle(_ task: BGTask, budget: TimeInterval) {
+        BgLog.add("background run (\(task is BGProcessingTask ? "processing" : "refresh")) started by iOS")
         scheduleIfEnabled()   // keep the chain going whatever happens below
         let stopper = SyncStopper()
         let once = RunOnce()
         task.expirationHandler = {
+            BgLog.add("iOS ended the run early (time limit)")
             stopper.stop()
             once.run { task.setTaskCompleted(success: false) }
         }
@@ -407,10 +521,23 @@ public enum AeolusBackground {
         gate.unlock()
         defer { gate.lock(); running = false; gate.unlock() }
 
-        guard BgState.enabled, BgState.alerts else { return true }
-        guard BgState.engineOK == engineVersion else { return true }   // the foreground self-test has not passed for this build
+        guard BgState.enabled, BgState.alerts else {
+            BgLog.add("run skipped: Background Sync or alerts off")
+            return true
+        }
+        guard BgState.engineOK == engineVersion else {   // the foreground self-test has not passed for this build
+            BgLog.add("run skipped: open the app once (self-test for this build not passed yet)")
+            return true
+        }
         let store = WatchStore()
-        guard store.hasWallet, let pw = store.password(create: false) else { return true }   // locked since restart: try later
+        guard store.hasWallet else {
+            BgLog.add("run skipped: no watch wallet (rebuilt when you next open the wallet)")
+            return true
+        }
+        guard let pw = store.password(create: false) else {   // locked since restart: try later
+            BgLog.add("run skipped: phone not unlocked since restart (watch key locked)")
+            return true
+        }
 
         let h: OpaquePointer
         do {
@@ -418,6 +545,7 @@ public enum AeolusBackground {
             h = try Engine.open(password: pw, keys: k, cache: c)
         } catch {
             // Damaged files: drop them, the next unlock rebuilds the watch wallet.
+            BgLog.add("watch wallet could not be opened (\(Engine.message(error))) · removed, rebuilt at next unlock")
             ifCurrent(e) { store.wipeFiles() }
             return false
         }
@@ -426,25 +554,37 @@ public enum AeolusBackground {
 
         // Sync from the wallet's own height, on the node the app uses.
         let node = BgState.node ?? defaultNode
+        let host = URL(string: node)?.host ?? "?"
+        let before = (try? Engine.json({ zios_wallet_info(h, $0) }))?["height"] as? NSNumber
         var daemonHeight: Int64?
+        var syncNote = "not started (time limit)"
         if !stopper.isStopped {
             do {
                 try NodeAllowlist.check(node)   // same host rule as the foreground wallet
                 try Engine.check { zios_wallet_set_daemon(h, node, "", "", $0) }
                 let r = try Engine.json { zios_wallet_sync(h, $0) }
                 if let d = (r["daemonHeight"] as? NSNumber)?.int64Value, d > 0 { daemonHeight = d }
+                syncNote = "\((r["fetched"] as? NSNumber)?.int64Value ?? 0) new blocks"
             } catch {
                 // a sync ended by the time limit, or no node: what was fetched so far is still kept below
+                syncNote = stopper.isStopped ? "stopped at the time limit" : "sync failed: \(Engine.message(error))"
             }
         }
+        let after = (try? Engine.json({ zios_wallet_info(h, $0) }))?["height"] as? NSNumber
         if let d = daemonHeight, BgState.notifyFrom == Int64.max { BgState.notifyFrom = d }
 
         // New payments.
         var fresh: [String] = []
+        var txCount = -1
         if let hist = try? Engine.json({ zios_wallet_tx_history(h, $0) }), let txs = hist["txs"] as? [[String: Any]] {
+            txCount = txs.count
             fresh = PaymentFilter.newPayments(txs: txs, seen: BgState.seen, own: Set(BgState.own),
                                               notifyFrom: BgState.notifyFrom)
         }
+        func n(_ x: NSNumber?) -> String { x.map { String($0.int64Value) } ?? "?" }
+        BgLog.add("run: node \(host) · \(syncNote) · watch block \(n(before)) → \(n(after))"
+                  + " of \(daemonHeight.map(String.init) ?? "?") · watch txs \(txCount < 0 ? "?" : String(txCount))"
+                  + " · new payments \(fresh.count)")
 
         // Save the watch wallet (unless it was switched off or replaced meanwhile).
         if let d = try? Engine.data(h, password: pw) {
@@ -459,7 +599,11 @@ public enum AeolusBackground {
                     announce = true
                 }
             }
-            if announce { notify(count: fresh.count, ids: fresh) }
+            if announce {
+                notify(count: fresh.count, ids: fresh)
+            } else {
+                BgLog.add("\(fresh.count) payment(s) not announced: switched off during the run")
+            }
         }
         return daemonHeight != nil
     }

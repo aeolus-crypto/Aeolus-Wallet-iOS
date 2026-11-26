@@ -8,6 +8,13 @@ enum Engine {
         var errorDescription: String? { message }
     }
 
+    /// An error's text for logs, capped (engine errors can be long).
+    static func message(_ e: Error) -> String {
+        let m = (e as? LocalizedError)?.errorDescription ?? e.localizedDescription
+        let t = m.isEmpty ? String(describing: type(of: e)) : m
+        return t.count > 160 ? String(t.prefix(160)) + "…" : t
+    }
+
     typealias ErrOut = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
 
     /// Takes ownership of a string the engine returned (wiped and freed by zios_free).

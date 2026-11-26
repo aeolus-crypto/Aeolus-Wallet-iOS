@@ -1253,16 +1253,31 @@ function _buildDebugLog(){
 }
 // Opens the default mail app with the log filled in, to aeoluswallet@protonmail.com (the address
 // is fixed in the Android code). Nothing is sent until you press Send. Falls back to copying.
-function emailDebugLog(){
+var AEOLUS_BUILD = 'bg-fix-5 (2026-11-25)';
+async function emailDebugLog(){
   var info = _buildDebugLog();
+  var bgSection = '';
+  // Background Sync's own log (native): what ran while the app was closed and why a payment did or
+  // didn't notify. Counts and heights only, no amounts or transaction ids.
+  try{
+    var P = _bgPlugin();
+    if(P && typeof P.getBgLog === 'function'){
+      var bl = await _withTimeout(P.getBgLog(), 3000);
+      bgSection = '=== Background Sync ===\nNow: ' + ((bl && bl.state) || '?') + '\n' + ((bl && bl.log) || '(empty)');
+    } else {
+      bgSection = '=== Background Sync ===\n(native log missing: the Android part of the app is an older build. Rebuild and reinstall.)';
+    }
+  }catch(e){ bgSection = '=== Background Sync ===\n(unavailable: ' + ((e && e.message) || 'error') + ')'; }
+  // At the TOP, so a mail app that trims or hides the end of a long message can't drop it.
+  info = 'Build: ' + AEOLUS_BUILD + '\n\n' + bgSection + '\n\n' + info;
   var ok = false;
   try{ ok = !!(window.Android && typeof window.Android.emailDebugLog === 'function' && window.Android.emailDebugLog(info)); }catch(e){}
   if(ok){ toast('Opening your mail app…', 2500); return; }
-  copyDebugLog();
+  copyDebugLog(info);
   toast('No mail app found — log copied instead. Paste it into an email to aeoluswallet@protonmail.com', 6000);
 }
-function copyDebugLog(){
-  var info = _buildDebugLog();
+function copyDebugLog(full){
+  var info = (typeof full === 'string' && full) ? full : _buildDebugLog();
   try{
     if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(info); }
     else{ var ta=document.createElement('textarea');ta.value=info;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove(); }

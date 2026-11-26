@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import UIKit
+import UserNotifications
 import Capacitor
 import ZephyrIOS
 
@@ -40,7 +41,7 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
         "createSubaddress", "getPrices", "getTxHistory", "getBalances", "validateAddress", "getReserveInfo",
         "enrollSendPin", "authorizeSend", "prepareTxs", "relayPrepared", "discardPrepared", "rescanWallet",
         "closeWallet", "wipe", "httpPost",
-        "startBackgroundSync", "stopBackgroundSync", "setPaymentAlerts"
+        "startBackgroundSync", "stopBackgroundSync", "setPaymentAlerts", "getBgLog"
     ].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
 
     static weak var shared: ZephyrWalletPlugin?
@@ -522,6 +523,22 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
         walletQ.async { [self] in
             AeolusBackground.setAlerts(on, source: watchSource())
             call.resolve(["ok": true])
+        }
+    }
+
+    /// Background Sync's log for Email Debug Log: {state, log}. Counts, heights and reasons only.
+    @objc func getBgLog(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let app = UIApplication.shared   // main thread only
+            let refresh = app.backgroundRefreshStatus
+            let inBackground = app.applicationState == .background
+            let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            UNUserNotificationCenter.current().getNotificationSettings { s in
+                let state = AeolusBackground.stateLine(refresh: refresh, notifications: s.authorizationStatus,
+                                                       lowPower: lowPower)
+                    + " appInBackground=\(inBackground) engine=\(String(cString: zios_version()))"
+                call.resolve(["state": state, "log": BgLog.read()])
+            }
         }
     }
 
