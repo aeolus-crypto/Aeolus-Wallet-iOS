@@ -1018,6 +1018,7 @@ const STORAGE_KEYS = {
     'zw_bg_sync',
     'zw_bg_sync2',
     'zw_pay_alerts',
+    'zw_pend_swaps',
     'zw_tip_hold_home'
   ],
   secure: [
@@ -1253,7 +1254,7 @@ function _buildDebugLog(){
 }
 // Opens the default mail app with the log filled in, to aeoluswallet@protonmail.com (the address
 // is fixed in the Android code). Nothing is sent until you press Send. Falls back to copying.
-var AEOLUS_BUILD = 'bg-fix-5 (2026-11-25)';
+var AEOLUS_BUILD = 'swapfix-6 (2026-11-26)';
 async function emailDebugLog(){
   var info = _buildDebugLog();
   var bgSection = '';
@@ -2720,6 +2721,29 @@ function toggleHideBal(){
   toast(_balHidden() ? 'Balances hidden — tap again to show' : 'Balances shown');
 }
 
+// Pending swaps (conversions) until their block confirms. While pending, the wallet still counts the
+// coins being swapped in its TOTAL (so they would show as "locked" on the home screen) and the
+// destination coin doesn't exist yet. We remember the swap so the home rows can say what's really
+// happening: the outgoing amount is not shown as locked, and the incoming amount shows as pending.
+var _PSW_KEY = 'zw_pend_swaps';
+function _pendSwaps(){ try{ var a = JSON.parse(localStorage.getItem(_PSW_KEY) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function _savePendSwaps(a){ try{ if(a && a.length) localStorage.setItem(_PSW_KEY, JSON.stringify(a)); else localStorage.removeItem(_PSW_KEY); }catch(e){} }
+function _addPendSwap(hash, from, to, outAmt, inAmt){
+  var a = _pendSwaps();
+  a.push({ h: hash || '', f: from, t: to, o: _numSafe(outAmt), i: _numSafe(inAmt), ts: Date.now() });
+  _savePendSwaps(a);
+}
+function _prunePendSwaps(){
+  var a = _pendSwaps(); if(!a.length) return a;
+  var now = Date.now(), txs = (W && W.transactions) || [];
+  var keep = a.filter(function(s){
+    if(!s || now - (s.ts || 0) > 40 * 60 * 1000) return false;            // safety: never longer than 40 min
+    if(!s.h) return true;
+    return !txs.some(function(t){ return t && t.txid === s.h && t.confirmed !== false && (t.height || 0) > 0; });
+  });
+  if(keep.length !== a.length) _savePendSwaps(keep);
+  return keep;
+}
 function updBals(){
   const b = W.balances || {}, p = W.prices || {}, lk = W.lockedBals || {};
   // Guard against missing balances ("$NaN")
@@ -2736,12 +2760,17 @@ function updBals(){
   setText('b-zrs', hide ? MASK : num(b.ZRS).toFixed(6)); setText('b-zys', hide ? MASK : num(b.ZYS).toFixed(6));
 
   // Locked amounts are per asset, not in the total
-  var lkZPH = num(lk.ZPH), lkZSD = num(lk.ZSD), lkZRS = num(lk.ZRS), lkZYS = num(lk.ZYS);
-  const lkS = v => (!hide && v > 0.000001) ? ' · 🔒'+v.toFixed(4) : '';
-  setText('u-zph', fmtUsd(num(b.ZPH),num(p.ZPH)) + lkS(lkZPH));
-  setText('u-zsd', fmtUsd(num(b.ZSD),num(p.ZSD)) + lkS(lkZSD));
-  setText('u-zrs', fmtUsd(num(b.ZRS),num(p.ZRS)) + lkS(lkZRS));
-  setText('u-zys', fmtUsd(num(b.ZYS),num(p.ZYS)) + lkS(lkZYS));
+  // A pending swap's outgoing coins are leaving, not locked; its incoming coins show as pending.
+  var pOut = {}, pIn = {};
+  try{ _prunePendSwaps().forEach(function(s){ pOut[s.f] = (pOut[s.f] || 0) + num(s.o); pIn[s.t] = (pIn[s.t] || 0) + num(s.i); }); }catch(e){}
+  var lkZPH = Math.max(0, num(lk.ZPH) - num(pOut.ZPH)), lkZSD = Math.max(0, num(lk.ZSD) - num(pOut.ZSD)),
+      lkZRS = Math.max(0, num(lk.ZRS) - num(pOut.ZRS)), lkZYS = Math.max(0, num(lk.ZYS) - num(pOut.ZYS));
+  const lkS = (v, inc) => ((!hide && v > 0.000001) ? ' · 🔒'+v.toFixed(4) : '')
+    + (num(inc) > 0.000001 ? (hide ? ' · ⏳ incoming' : ' · ⏳ +'+num(inc).toFixed(4)+' incoming') : '');
+  setText('u-zph', fmtUsd(num(b.ZPH),num(p.ZPH)) + lkS(lkZPH, pIn.ZPH));
+  setText('u-zsd', fmtUsd(num(b.ZSD),num(p.ZSD)) + lkS(lkZSD, pIn.ZSD));
+  setText('u-zrs', fmtUsd(num(b.ZRS),num(p.ZRS)) + lkS(lkZRS, pIn.ZRS));
+  setText('u-zys', fmtUsd(num(b.ZYS),num(p.ZYS)) + lkS(lkZYS, pIn.ZYS));
 
   // Push to native Android screens
   try{
@@ -6482,6 +6511,7 @@ async function _executeSwap(){
     if(!txs.length) throw new Error('The wallet returned no transaction, nothing was converted');
     var hash = (txs[0] && (txs[0].hash || txs[0].txid || txs[0].id)) || '';
     _optTx.txid = hash || _optTx.txid;
+    if(q.own) _addPendSwap(hash, q.from, q.to, q.amt + _feeN, q.est);   // only when the coins come back to this wallet
     var fa = document.getElementById('sw-amt'), ta = document.getElementById('sw-to-amt'), ad = document.getElementById('sw-addr');
     if(fa) fa.value = ''; if(ta) ta.value = ''; if(ad) ad.value = '';
     _swStatus('✅ Swap submitted. ' + t.tk + ' arrives after the next block and unlocks in about 20 minutes.', 'var(--green)');
@@ -6493,6 +6523,7 @@ async function _executeSwap(){
     var _postCheck = _relayAttempted ? await _verifyPostRelayError(e, _optTx, q.from, q.amt, prep) : { status: 'failed' };
     if(_postCheck.status === 'broadcast'){
       _optTx.txid = _postCheck.hash || _optTx.txid;
+      if(q.own) _addPendSwap(_postCheck.hash, q.from, q.to, q.amt + _feeN, q.est);
       var faB = document.getElementById('sw-amt'), taB = document.getElementById('sw-to-amt'), adB = document.getElementById('sw-addr');
       if(faB) faB.value = ''; if(taB) taB.value = ''; if(adB) adB.value = '';
       _swStatus('✅ Swap submitted. ' + t.tk + ' arrives after the next block and unlocks in about 20 minutes.', 'var(--green)');
