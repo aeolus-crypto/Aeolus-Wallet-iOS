@@ -169,6 +169,8 @@ enum InstallGuard {
         NativeAuth.keychain.clear()
         WalletStore.keychain.clear()
         SecureStoragePlugin.keychain.clear()
+        WatchStore.keychain.clear()   // the Keychain survives an uninstall; the background watcher does not
+        BgState.clear()
         Biometric.reset()
         UserDefaults.standard.set(true, forKey: flag)
     }

@@ -802,7 +802,6 @@ textarea{resize:none;line-height:1.65}
     </div>
     <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px" id="sc-addr-label">To Address</div>
     <div id="sc-addr" style="font-size:11px;font-family:var(--mono);word-break:break-all;background:var(--dim);border:1px solid var(--border);border-radius:10px;padding:10px;line-height:1.5;margin-bottom:12px">—</div>
-    <div id="sc-net-warn" style="display:none;font-size:11px;color:var(--yellow);background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:9px 11px;line-height:1.5;margin-bottom:12px">⚠️ Node connection is plain HTTP — switch to an HTTPS node in Settings for safer sends.</div>
     <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px" id="sc-auth-label">Enter PIN to authorize</div>
     <div class="pds" id="sc-dots" style="margin:4px 0 12px">
       <div class="pd" id="scd0"></div><div class="pd" id="scd1"></div><div class="pd" id="scd2"></div><div class="pd" id="scd3"></div>
@@ -1105,7 +1104,7 @@ async function toggleBgSync(){
         try{ updateHistSrcUI(); _rebuildHistoryFromWallet().then(function(ok){ if(ok){ save(); renderRecentTxs(); renderAllTxs(); } }).catch(function(){}); }catch(e){}
       }
       try{ if(P.setPaymentAlerts) await P.setPaymentAlerts({ enabled: _payAlertsOn }); }catch(e){}
-      await P.startBackgroundSync();
+      await P.startBackgroundSync({ askBattery: true, fromNow: true });   // only here, never on unlock
       _bgSyncEnabled = true;
       try{ localStorage.setItem('zw_bg_sync2', '1'); }catch(e){}
       updateBgSyncUI();
@@ -4066,11 +4065,6 @@ async function doSend(){
   var authLbl=document.getElementById('sc-auth-label'); if(authLbl) authLbl.textContent='Enter '+_authNoun()+' to authorize';
   _scBuf=''; _scBusy=false;
   _showDots('scd', _pinLen()); updDots('sc-dots','scd','');
-  // Warn when sending through a plain-HTTP remote node (MITM can watch the
-  // broadcast and poison decoy selection). Private/LAN hosts are exempt.
-  var nu=(W.nodeUrl||''); var warn=document.getElementById('sc-net-warn');
-  var isPrivate=/^http:\/\/(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(nu);
-  if(warn) warn.style.display = (nu.indexOf('http://') === 0 && !isPrivate) ? 'block' : 'none';
   if(_isMax) document.getElementById('sc-amt').textContent = 'Everything ('+symC+')';
   document.getElementById('send-confirm-modal').style.display='flex';
   // Build the transaction now (not broadcast) to show the exact fee before the PIN.
@@ -6396,9 +6390,6 @@ async function swPreview(){
   var authLbl = document.getElementById('sc-auth-label'); if(authLbl) authLbl.textContent = 'Enter ' + _authNoun() + ' to authorize';
   _scBuf = ''; _scBusy = false;
   _showDots('scd', _pinLen()); updDots('sc-dots','scd','');
-  var nu = (W.nodeUrl || ''), warn = document.getElementById('sc-net-warn');
-  var isPrivate = /^http:\/\/(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(nu);
-  if(warn) warn.style.display = (nu.indexOf('http://') === 0 && !isPrivate) ? 'block' : 'none';
   _scAction = _executeSwap;
   document.getElementById('send-confirm-modal').style.display = 'flex';
   // Build the conversion now (not broadcast) to show the exact fee before the PIN.

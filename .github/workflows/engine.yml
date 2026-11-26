@@ -172,6 +172,11 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npx cap sync ios
+      - name: Payment alert logic test (swiftc, no engine)
+        working-directory: app/plugins/aeolus-native
+        run: |
+          swiftc -o "$RUNNER_TEMP/pftest" ios/Sources/AeolusNative/PaymentFilter.swift tests/main.swift
+          "$RUNNER_TEMP/pftest"
       - name: Build (unsigned)
         run: |
           if [ "${{ matrix.sdk }}" = iphoneos ]; then DEST='generic/platform=iOS'; else DEST='generic/platform=iOS Simulator'; fi
@@ -188,6 +193,14 @@ jobs:
           BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || true)"
           echo "bundle id: '$BID'"
           if [ "$BID" != com.aeolus.wallet ]; then tail -80 "$RUNNER_TEMP/xcodebuild.log"; exit 1; fi
+          # Background payment alerts: app refresh + processing modes and the two task ids, and no push mode.
+          MODES="$(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$APP/Info.plist")"
+          echo "$MODES"
+          echo "$MODES" | grep -q fetch && echo "$MODES" | grep -q processing || { echo "missing background modes"; exit 1; }
+          if echo "$MODES" | grep -q remote-notification; then echo "unexpected remote-notification mode"; exit 1; fi
+          IDS="$(/usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers' "$APP/Info.plist")"
+          echo "$IDS"
+          echo "$IDS" | grep -q com.aeolus.wallet.refresh && echo "$IDS" | grep -q com.aeolus.wallet.processing || { echo "missing task ids"; exit 1; }
       - name: Unsigned .ipa for sideloading
         if: matrix.sdk == 'iphoneos'
         run: |

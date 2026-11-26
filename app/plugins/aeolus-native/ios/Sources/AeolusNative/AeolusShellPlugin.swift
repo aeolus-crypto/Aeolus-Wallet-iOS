@@ -9,6 +9,7 @@ import Capacitor
 ///    (Android: WalletBridge), injected before the page's own scripts run;
 ///  - window.Android.emailDebugLog (Settings -> Email Debug Log): Mail, or the share sheet;
 ///  - window.AndroidSettings.openAppSettings (the QR scanner uses the WebView camera on iOS);
+///  - Background Sync / Payment Alerts rows stay visible; their note text is replaced with the iOS one;
 ///  - the WebView may use the camera (QR scanner) and nothing else: no microphone;
 ///  - privacy shield (Android: FLAG_SECURE): a cover over the app in the app switcher and while
 ///    the screen is recorded or mirrored. iOS lets no app block screenshots themselves.
@@ -102,10 +103,12 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
             '#bnav{padding-bottom:calc(8px + ' + b + ')}' +
             '#page-home,#page-history,#page-settings,#page-node,#page-swap{bottom:0;padding-bottom:calc(56px + ' + b + ')}' +
             '#send-confirm-modal{padding-top:calc(24px + ' + t + ') !important;padding-bottom:calc(24px + ' + b + ') !important}' +
-            '#qr-scanner-modal,#wipe-confirm-modal,#cam-perm-modal{padding-top:' + t + ' !important;padding-bottom:' + b + ' !important}' +
-            // Background Sync and Payment Alerts run on Android's foreground service; iOS has none.
-            '.si2[onclick^="toggleBgSync"],#payalerts-row{display:none !important}';
+            '#qr-scanner-modal,#wipe-confirm-modal,#cam-perm-modal{padding-top:' + t + ' !important;padding-bottom:' + b + ' !important}';
           (document.head || document.documentElement).appendChild(s);
+          // Background Sync works differently here (iOS wakes the app now and then, there is no always-on
+          // service), so the page's Android battery tip is replaced by what is true on iOS.
+          var note = document.getElementById('bgsync-note');
+          if (note) note.textContent = 'iOS decides when this runs: roughly every 15 minutes to a few hours. Needs Background App Refresh on and Low Power Mode off, and stops if you swipe the app away.';
         })();
         """
 

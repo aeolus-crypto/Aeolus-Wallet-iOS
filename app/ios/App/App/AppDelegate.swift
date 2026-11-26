@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AeolusNative
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,7 +8,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Background payment alerts: iOS only accepts these registrations before launch finishes.
+        AeolusBackground.register()
         return true
     }
 

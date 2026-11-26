@@ -39,7 +39,8 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
         "warmUp", "open", "setDaemon", "setListener", "sync", "stopSyncing", "createKeys", "restoreKeys",
         "createSubaddress", "getPrices", "getTxHistory", "getBalances", "validateAddress", "getReserveInfo",
         "enrollSendPin", "authorizeSend", "prepareTxs", "relayPrepared", "discardPrepared", "rescanWallet",
-        "closeWallet", "wipe", "httpPost"
+        "closeWallet", "wipe", "httpPost",
+        "startBackgroundSync", "stopBackgroundSync", "setPaymentAlerts"
     ].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
 
     static weak var shared: ZephyrWalletPlugin?
@@ -163,6 +164,7 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
             throw Engine.Failure(message: "Wallet engine self-test failed on this device")
         }
         selfTestPassed = true
+        AeolusBackground.markEngineVerified()   // background runs only start on a build that passed this
     }
 
     @objc func open(_ call: CAPPluginCall) {
@@ -175,6 +177,8 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
                 let info = try Engine.json { zios_wallet_info(wallet, $0) }
                 call.resolve(["address": info["address"] ?? "", "viewKey": info["viewKey"] ?? "",
                               "viewOnly": info["viewOnly"] ?? false])
+                // Background Sync is on but its watch wallet is missing (a failed run, say): rebuild it.
+                if let src = watchSource() { AeolusBackground.walletOpened(src) }
             } catch {
                 call.reject(Self.msg(error))
             }
@@ -390,6 +394,10 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
                     do { try connect(w, node, "", "") } catch { zios_wallet_discard_prepared(w); throw error }
                 }
                 let r = try Engine.json { zios_wallet_relay_prepared(w, $0) }
+                // Its change comes back as an incoming output: never announce it as a payment.
+                if let txs = r["txs"] as? [[String: Any]] {
+                    AeolusBackground.recordOwn(txs.compactMap { $0["hash"] as? String })
+                }
                 // A sent transaction's secret key exists only in the cache: store it right away.
                 try? persist()
                 call.resolve(r)
@@ -471,6 +479,7 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Deletes the stored wallet and closes the open one WITHOUT saving it. Any thread, any time.
     static func wipeFromNative() {
         NativeAuth.clear()
+        AeolusBackground.wipeAll()   // the background watch wallet, its Keychain item and its settings
         WalletStore().wipeFiles()
         guard let p = shared else { return }
         p.stopRequested = true
@@ -481,6 +490,48 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
             p.closeNow()
             p.store.wipeFiles()
         }
+    }
+
+    // MARK: - background payment alerts (see BackgroundSync.swift)
+
+    /// Background Sync switch. {fromNow, askBattery}: askBattery is Android-only. Switching on needs the
+    /// open wallet and Background App Refresh; the page shows the error text when it cannot start.
+    @objc func startBackgroundSync(_ call: CAPPluginCall) {
+        let fromNow = call.getBool("fromNow") ?? false
+        DispatchQueue.main.async { [self] in
+            let refresh = UIApplication.shared.backgroundRefreshStatus   // main thread only
+            walletQ.async { [self] in
+                do {
+                    call.resolve(try AeolusBackground.start(fromNow: fromNow, source: watchSource(), refresh: refresh))
+                } catch {
+                    call.reject(Self.msg(error))
+                }
+            }
+        }
+    }
+
+    /// Background Sync off: the watch wallet and everything of it is deleted.
+    @objc func stopBackgroundSync(_ call: CAPPluginCall) {
+        AeolusBackground.stop()
+        call.resolve(["ok": true])
+    }
+
+    /// {enabled}: Payment Alerts switch.
+    @objc func setPaymentAlerts(_ call: CAPPluginCall) {
+        let on = call.getBool("enabled") ?? true
+        walletQ.async { [self] in
+            AeolusBackground.setAlerts(on, source: watchSource())
+            call.resolve(["ok": true])
+        }
+    }
+
+    /// walletQ only: the open wallet's address and private view key, for the view-only watch wallet.
+    private func watchSource() -> AeolusBackground.Source? {
+        guard let w = wallet,
+              let info = try? Engine.json({ zios_wallet_info(w, $0) }),
+              let a = info["address"] as? String, !a.isEmpty,
+              let v = info["viewKey"] as? String, v.count == 64 else { return nil }
+        return AeolusBackground.Source(address: a, viewKey: v)
     }
 
     // MARK: - internals (walletQ only unless noted)
@@ -502,6 +553,7 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
         } else {
             try NodeAllowlist.check(url)
             try Engine.check { zios_wallet_set_daemon(w, url, user, pass, $0) }
+            AeolusBackground.rememberNode(url)   // background runs use the node the user is on
         }
     }
 

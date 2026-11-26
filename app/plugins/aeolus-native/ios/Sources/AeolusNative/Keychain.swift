@@ -1,10 +1,13 @@
 import Foundation
 import Security
 
-/// Generic-password items in the app's Keychain, readable only while the device is unlocked and
-/// never migrated to another device (no iCloud Keychain, not in backups restored elsewhere).
+/// Generic-password items in the app's Keychain, never migrated to another device (no iCloud
+/// Keychain, not in backups restored elsewhere). By default an item is readable only while the
+/// device is unlocked; only the background payment watcher (WatchStore, view key only) asks for
+/// "after first unlock" so it can run while the phone is locked.
 struct Keychain {
     let service: String
+    var accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
 
     func get(_ account: String) -> Data? {
         let q: [String: Any] = [
@@ -32,7 +35,7 @@ struct Keychain {
         ]
         let attrs: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecAttrAccessible as String: accessible
         ]
         var st = SecItemUpdate(base as CFDictionary, attrs as CFDictionary)
         if st == errSecItemNotFound {
