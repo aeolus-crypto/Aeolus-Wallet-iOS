@@ -1,0 +1,16 @@
+diff --git a/src/wallet/monero_wallet_full.cpp b/src/wallet/monero_wallet_full.cpp
+index 991a130..eee101a 100644
+--- a/src/wallet/monero_wallet_full.cpp
++++ b/src/wallet/monero_wallet_full.cpp
+@@ -1334,7 +1334,10 @@ namespace monero {
+     // prepare uri, login, and is_trusted for wallet2
+     boost::optional<epee::net_utils::http::login> login{};
+     login.emplace(username, password);
+-    bool is_trusted = true;
++    // Aeolus iOS: remote public nodes are never trusted. wallet2 then keeps the wallet's own amounts
++    // out of output-histogram requests, hides daemon error details, and refuses commands that would
++    // ask the node about the wallet's key images (rescan_spent, scan_tx re-processing).
++    bool is_trusted = false;
+ 
+     // TODO: is_local_address() uses common/util which requires libunbound
+ //    bool is_trusted = false;

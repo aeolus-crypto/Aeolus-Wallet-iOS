@@ -14,6 +14,9 @@ public class SecureStoragePlugin: CAPPlugin, CAPBridgedPlugin {
 
     static let keychain = Keychain(service: "com.aeolus.wallet.web")
     private static let maxValueLen = 64 * 1024
+    /// Kept encrypted under a Secure Enclave key (PepperWrap): the page's PIN pepper, which guards
+    /// the encrypted seed.
+    private static let wrapped: Set<String> = ["zw_kdf_pepper"]
 
     override public func load() { InstallGuard.run() }
 
@@ -28,7 +31,16 @@ public class SecureStoragePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func getItem(_ call: CAPPluginCall) {
         guard let k = key(call) else { return }
-        if let v = Self.keychain.getString(k) { call.resolve(["value": v]) } else { call.resolve() }
+        guard let stored = Self.keychain.getString(k) else { call.resolve(); return }
+        guard Self.wrapped.contains(k) else { call.resolve(["value": stored]); return }
+        guard let v = PepperWrap.unwrap(stored, .web) else {
+            call.reject("Secure storage read failed")   // never "absent": the page must not make a new pepper
+            return
+        }
+        if !PepperWrap.isWrapped(stored), let w = PepperWrap.wrap(v, .web) {
+            Self.keychain.set(k, string: w)   // pepper from an older build: wrap it now
+        }
+        call.resolve(["value": v])
     }
 
     @objc func setItem(_ call: CAPPluginCall) {
@@ -37,7 +49,8 @@ public class SecureStoragePlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Invalid value")
             return
         }
-        Self.keychain.set(k, string: v) ? call.resolve() : call.reject("Secure storage write failed")
+        let stored = Self.wrapped.contains(k) ? (PepperWrap.wrap(v, .web) ?? v) : v
+        Self.keychain.set(k, string: stored) ? call.resolve() : call.reject("Secure storage write failed")
     }
 
     @objc func removeItem(_ call: CAPPluginCall) {
@@ -47,6 +60,8 @@ public class SecureStoragePlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Wipes only the web app's secrets (used by the wallet wipe).
     @objc func clear(_ call: CAPPluginCall) {
-        Self.keychain.clear() ? call.resolve() : call.reject("Secure storage clear failed")
+        let ok = Self.keychain.clear()
+        PepperWrap.reset(.web)
+        ok ? call.resolve() : call.reject("Secure storage clear failed")
     }
 }

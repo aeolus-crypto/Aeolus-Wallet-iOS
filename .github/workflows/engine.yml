@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       backports:
-        description: 'Apply the optional zephyr-backports security layer'
+        description: 'Apply the zephyr-backports security layer (on for every push build)'
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -19,7 +19,9 @@ defaults:
     working-directory: zephyr-engine
 
 env:
-  ZIOS_BACKPORTS: ${{ inputs.backports && '1' || '0' }}
+  # zephyr-backports security fixes (SB-001..034, as the Android app ships through zephyr-java):
+  # always on for push builds; only a manual run with the box unticked builds without them.
+  ZIOS_BACKPORTS: ${{ (github.event_name != 'workflow_dispatch' || inputs.backports) && '1' || '0' }}
 
 jobs:
   layers:
@@ -31,6 +33,14 @@ jobs:
         run: scripts/setup_tree.sh
       - name: backports layer + iOS layer
         run: rm -rf work && ZIOS_BACKPORTS=1 scripts/setup_tree.sh
+      - name: Strict-CSP page transform + behaviour test (jsdom)
+        working-directory: app
+        run: |
+          rm -rf "$RUNNER_TEMP/w" && cp -r www "$RUNNER_TEMP/w"
+          python3 -I scripts/csp_strict.py "$RUNNER_TEMP/w"
+          npm install --prefix "$RUNNER_TEMP/jsd" --no-audit --no-fund --silent jsdom@24.1.3
+          JSDOM_DIR="$RUNNER_TEMP/jsd/node_modules/jsdom" node tests/csp_strict_test.js www/index.html \
+            "$RUNNER_TEMP/w/index.html" "$RUNNER_TEMP/w/aeolus-handlers.js" "$RUNNER_TEMP/w/aeolus-app.js" 2>/dev/null
 
   build:
     name: ${{ matrix.platform }}
@@ -171,6 +181,9 @@ jobs:
       - name: Web assets and plugins
         run: |
           npm ci --no-audit --no-fund
+          # iOS runs the page under script-src 'self': inline script and handlers become files
+          # (www/index.html in the repo stays identical to the Android page)
+          python3 -I scripts/csp_strict.py www
           npx cap sync ios
       - name: Payment alert logic test (swiftc, no engine)
         working-directory: app/plugins/aeolus-native
@@ -193,6 +206,10 @@ jobs:
           BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || true)"
           echo "bundle id: '$BID'"
           if [ "$BID" != com.aeolus.wallet ]; then tail -80 "$RUNNER_TEMP/xcodebuild.log"; exit 1; fi
+          # Strict CSP made it into the app: no inline script, no 'unsafe-inline' in script-src.
+          grep -o "script-src[^;]*" "$APP/public/index.html" | tee /dev/stderr | grep -qv "unsafe-inline"
+          test -f "$APP/public/aeolus-app.js" && test -f "$APP/public/aeolus-handlers.js"
+          if grep -Eq "<script>|\son(click|input)=\"" "$APP/public/index.html"; then echo "inline code left in the page"; exit 1; fi
           # Background payment alerts: app refresh + processing modes and the two task ids, and no push mode.
           MODES="$(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$APP/Info.plist")"
           echo "$MODES"

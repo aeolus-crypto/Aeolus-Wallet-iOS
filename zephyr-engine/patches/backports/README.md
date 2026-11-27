@@ -1,6 +1,7 @@
-# Optional layer: zephyr-backports security fixes
+# Layer: zephyr-backports security fixes (on in every CI build)
 
-Off by default. The engine is built from the original ZephyrProtocol repositories; this layer
+On in every CI push build since 2026-11-27 (iOS security audit HIGH-01); a manual workflow run can
+still untick it. The engine is built from the original ZephyrProtocol repositories; this layer
 adds the security fixes that the zephyr-backports forks carry (and that the Android app ships
 through zephyr-java), for use before a production release if upstream has not merged them.
 

@@ -77,7 +77,7 @@ enum NativeAuth {
 
     private static func checkPin(_ pin: String) -> Bool {
         guard let v = keychain.getString("verifier"), v.hasPrefix("v2$"),
-              let pepper = keychain.getString("pepper"),
+              let pepper = storedPepper(),
               let saltB64 = keychain.getString("salt"), let salt = Data(base64Encoded: saltB64) else { return false }
         let parts = v.split(separator: "$", omittingEmptySubsequences: false)
         guard parts.count == 3, let it = Int(parts[1]), it >= minIterations, it <= maxIterations,
@@ -88,6 +88,14 @@ enum NativeAuth {
         var diff: UInt8 = 0
         for i in 0..<got.count { diff |= got[got.startIndex + i] ^ want[want.startIndex + i] }
         return diff == 0
+    }
+
+    /// The pepper, unwrapped from its Secure Enclave envelope (an older build's plain pepper is
+    /// wrapped on first use). nil when missing or when the envelope can't be opened.
+    private static func storedPepper() -> String? {
+        guard let stored = keychain.getString("pepper"), let p = PepperWrap.unwrap(stored, .native) else { return nil }
+        if !PepperWrap.isWrapped(stored), let w = PepperWrap.wrap(p, .native) { keychain.set("pepper", string: w) }
+        return p
     }
 
     private static func random(_ n: Int) -> Data {
@@ -111,7 +119,7 @@ enum NativeAuth {
         guard let tok = try? token(pin: pin, pepperB64: pepper, salt: salt, iterations: iterations) else {
             return .fail(reason: "error", retryMs: nil)
         }
-        let ok = keychain.set("pepper", string: pepper)
+        let ok = keychain.set("pepper", string: PepperWrap.wrap(pepper, .native) ?? pepper)
             && keychain.set("salt", string: salt.base64EncodedString())
             && keychain.set("verifier", string: "v2$\(iterations)$" + tok.base64EncodedString())
         clearFails()
@@ -149,6 +157,7 @@ enum NativeAuth {
     static func clear() {
         lock.lock(); defer { lock.unlock() }
         keychain.clear()
+        PepperWrap.reset(.native)
         authUntil = .distantPast
     }
 }
@@ -170,6 +179,8 @@ enum InstallGuard {
         WalletStore.keychain.clear()
         SecureStoragePlugin.keychain.clear()
         WatchStore.keychain.clear()   // the Keychain survives an uninstall; the background watcher does not
+        PepperWrap.reset(.web)
+        PepperWrap.reset(.native)
         BgState.clear()
         Biometric.reset()
         UserDefaults.standard.set(true, forKey: flag)
