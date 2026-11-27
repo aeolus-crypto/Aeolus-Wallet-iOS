@@ -196,7 +196,7 @@ jobs:
           # Background payment alerts: app refresh + processing modes and the two task ids, and no push mode.
           MODES="$(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$APP/Info.plist")"
           echo "$MODES"
-          echo "$MODES" | grep -q fetch && echo "$MODES" | grep -q processing || { echo "missing background modes"; exit 1; }
+          echo "$MODES" | grep -q fetch && echo "$MODES" | grep -q processing && echo "$MODES" | grep -q audio || { echo "missing background modes"; exit 1; }
           if echo "$MODES" | grep -q remote-notification; then echo "unexpected remote-notification mode"; exit 1; fi
           IDS="$(/usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers' "$APP/Info.plist")"
           echo "$IDS"

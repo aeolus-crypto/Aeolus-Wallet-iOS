@@ -278,8 +278,26 @@ public enum AeolusBackground {
             handle(task, budget: processingBudget)
         }
         // iOS only runs tasks that were requested while the app was alive: ask again on leaving.
-        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
-                                               object: nil, queue: .main) { _ in scheduleIfEnabled() }
+        // While minimized (not swiped away), keep running and check every 60 s (KeepAlive).
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+            scheduleIfEnabled()
+            if BgState.enabled, BgState.alerts { KeepAlive.shared.start() }
+        }
+        nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+            KeepAlive.shared.stop()
+        }
+    }
+
+    /// One KeepAlive check (every 60 s while minimized): same work as an iOS wake-up, logged quietly.
+    static func keepAliveRun(budget: TimeInterval) {
+        guard BgState.enabled, BgState.alerts else {
+            KeepAlive.shared.stop(reason: "Background Sync off · stopped running in the background")
+            return
+        }
+        let stopper = SyncStopper()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + budget) { stopper.stop() }
+        DispatchQueue.global(qos: .utility).async { _ = syncOnce(stopper: stopper, quiet: true) }
     }
 
     /// Asks iOS for the next wake-ups (or cancels them when the watcher has nothing to do).
@@ -345,6 +363,7 @@ public enum AeolusBackground {
             + " seen=\(BgState.seen.count) ownSends=\(BgState.own.count)"
             + " backgroundAppRefresh=\(r) notifications=\(n) lowPowerMode=\(lowPower ? "ON" : "off")"
             + " engineSelfTest=\(BgState.engineOK == engineVersion ? "passed" : "not yet")"
+            + " runningMinimized=\(KeepAlive.shared.isRunning ? "yes" : "no")"
     }
 
     private static func cancelTasks() {
@@ -423,6 +442,7 @@ public enum AeolusBackground {
     /// Background Sync switched off.
     static func stop() {
         if BgState.enabled { BgLog.add("Background Sync switched OFF · watch wallet deleted") }
+        KeepAlive.shared.stop()
         bump()
         BgState.enabled = false
         cancelTasks()
@@ -529,7 +549,11 @@ public enum AeolusBackground {
 
     /// One background run: open the watch wallet, sync from its own height, announce new payments, save.
     /// true = nothing to complain about (including "nothing to do"), false = could not reach a node.
-    private static func syncOnce(stopper: SyncStopper) -> Bool {
+    private static var lastQuietLog = Date.distantPast   // gate
+
+    /// quiet (KeepAlive's 60 s checks): log a run only when it found something, failed, or every
+    /// 30 minutes, so the 120-line log still covers hours.
+    private static func syncOnce(stopper: SyncStopper, quiet: Bool = false) -> Bool {
         gate.lock()
         if running { gate.unlock(); return true }
         running = true
@@ -538,20 +562,20 @@ public enum AeolusBackground {
         defer { gate.lock(); running = false; gate.unlock() }
 
         guard BgState.enabled, BgState.alerts else {
-            BgLog.add("run skipped: Background Sync or alerts off")
+            BgLog.add("run skipped: Background Sync or alerts off", dedupe: quiet)
             return true
         }
         guard BgState.engineOK == engineVersion else {   // the foreground self-test has not passed for this build
-            BgLog.add("run skipped: open the app once (self-test for this build not passed yet)")
+            BgLog.add("run skipped: open the app once (self-test for this build not passed yet)", dedupe: quiet)
             return true
         }
         let store = WatchStore()
         guard store.hasWallet else {
-            BgLog.add("run skipped: no watch wallet (rebuilt when you next open the wallet)")
+            BgLog.add("run skipped: no watch wallet (rebuilt when you next open the wallet)", dedupe: quiet)
             return true
         }
         guard let pw = store.password(create: false) else {   // locked since restart: try later
-            BgLog.add("run skipped: phone not unlocked since restart (watch key locked)")
+            BgLog.add("run skipped: phone not unlocked since restart (watch key locked)", dedupe: quiet)
             return true
         }
 
@@ -574,6 +598,7 @@ public enum AeolusBackground {
         let before = (try? Engine.json({ zios_wallet_info(h, $0) }))?["height"] as? NSNumber
         var daemonHeight: Int64?
         var syncNote = "not started (time limit)"
+        var syncFailed = false
         if !stopper.isStopped {
             do {
                 try NodeAllowlist.check(node)   // same host rule as the foreground wallet
@@ -584,6 +609,7 @@ public enum AeolusBackground {
             } catch {
                 // a sync ended by the time limit, or no node: what was fetched so far is still kept below
                 syncNote = stopper.isStopped ? "stopped at the time limit" : "sync failed: \(Engine.message(error))"
+                syncFailed = !stopper.isStopped
             }
         }
         let after = (try? Engine.json({ zios_wallet_info(h, $0) }))?["height"] as? NSNumber
@@ -598,9 +624,15 @@ public enum AeolusBackground {
                                               notifyFrom: BgState.notifyFrom)
         }
         func n(_ x: NSNumber?) -> String { x.map { String($0.int64Value) } ?? "?" }
-        BgLog.add("run: node \(host) · \(syncNote) · watch block \(n(before)) → \(n(after))"
+        var logIt = !quiet || !fresh.isEmpty || syncFailed
+        if quiet && !logIt {
+            gate.lock()
+            if Date().timeIntervalSince(lastQuietLog) > 30 * 60 { lastQuietLog = Date(); logIt = true }
+            gate.unlock()
+        }
+        if logIt { BgLog.add((quiet ? "check" : "run") + ": node \(host) · \(syncNote) · watch block \(n(before)) → \(n(after))"
                   + " of \(daemonHeight.map(String.init) ?? "?") · watch txs \(txCount < 0 ? "?" : String(txCount))"
-                  + " · new payments \(fresh.count)")
+                  + " · new payments \(fresh.count)") }
 
         // Save the watch wallet (unless it was switched off or replaced meanwhile).
         if let d = try? Engine.data(h, password: pw) {

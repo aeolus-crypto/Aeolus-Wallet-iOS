@@ -27,7 +27,8 @@ let package = Package(
                 .linkedLibrary("c++"),
                 .linkedFramework("Security"),
                 .linkedFramework("LocalAuthentication"),
-                .linkedFramework("MessageUI")
+                .linkedFramework("MessageUI"),
+                .linkedFramework("AVFoundation")
             ]
         )
     ]
