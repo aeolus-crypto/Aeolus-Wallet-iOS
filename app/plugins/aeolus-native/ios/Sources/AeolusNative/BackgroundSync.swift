@@ -283,24 +283,40 @@ public enum AeolusBackground {
     }
 
     /// Asks iOS for the next wake-ups (or cancels them when the watcher has nothing to do).
+    /// A wake-up that is already pending is left alone: asking again would restart its earliest
+    /// time, and someone who switches apps often would never let 15 minutes pass.
     static func scheduleIfEnabled() {
         let s = BGTaskScheduler.shared
-        s.cancel(taskRequestWithIdentifier: refreshID)
-        s.cancel(taskRequestWithIdentifier: processingID)
-        guard BgState.enabled, BgState.alerts else { return }
-        let r = BGAppRefreshTaskRequest(identifier: refreshID)
-        r.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-        let p = BGProcessingTaskRequest(identifier: processingID)
-        p.requiresNetworkConnectivity = true
-        p.requiresExternalPower = false
-        p.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 60)
-        var failed: [String] = []
-        do { try s.submit(r) } catch { failed.append("refresh: \(error.localizedDescription)") }
-        do { try s.submit(p) } catch { failed.append("processing: \(error.localizedDescription)") }
-        if failed.isEmpty {
-            BgLog.add("wake-ups requested from iOS (refresh after 15 min, processing after 1 h)", dedupe: true)
-        } else {
-            BgLog.add("iOS refused the wake-up request · " + failed.joined(separator: " · "), dedupe: true)
+        guard BgState.enabled, BgState.alerts else {
+            s.cancel(taskRequestWithIdentifier: refreshID)
+            s.cancel(taskRequestWithIdentifier: processingID)
+            return
+        }
+        s.getPendingTaskRequests { pending in
+            guard BgState.enabled, BgState.alerts else { return }
+            let have = Set(pending.map { $0.identifier })
+            var asked: [String] = [], failed: [String] = []
+            if !have.contains(refreshID) {
+                let r = BGAppRefreshTaskRequest(identifier: refreshID)
+                r.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+                do { try s.submit(r); asked.append("refresh after 15 min") }
+                catch { failed.append("refresh: \(error.localizedDescription)") }
+            }
+            if !have.contains(processingID) {
+                let p = BGProcessingTaskRequest(identifier: processingID)
+                p.requiresNetworkConnectivity = true
+                p.requiresExternalPower = false
+                p.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 60)
+                do { try s.submit(p); asked.append("processing after 1 h") }
+                catch { failed.append("processing: \(error.localizedDescription)") }
+            }
+            if !failed.isEmpty {
+                BgLog.add("iOS refused the wake-up request · " + failed.joined(separator: " · "), dedupe: true)
+            } else if !asked.isEmpty {
+                BgLog.add("wake-ups requested from iOS (" + asked.joined(separator: ", ") + ")", dedupe: true)
+            } else {
+                BgLog.add("wake-ups already pending with iOS", dedupe: true)
+            }
         }
     }
 

@@ -418,25 +418,44 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Rescans from {height} with the stored keys (no seed needed, works after a Face ID unlock).
+    /// A second tap while a rescan runs stops it (the page ignores the replaced call) and starts over.
     @objc func rescanWallet(_ call: CAPPluginCall) {
-        let h = call.getDouble("height") ?? 0
-        let height: UInt64 = h.isFinite && h > 0 ? UInt64(min(h, 1e15)) : 0
+        let height = Self.blockArg(call, "height")
         stopRequested = true
-        controlQ.async { [self] in stopLive() }
+        stopLive()   // now, before this rescan can become the live one and stop itself
         walletQ.async { [self] in
             do {
                 guard let w = wallet else { throw Engine.Failure(message: "No wallet") }
                 clearPrepared()
                 NativeAuth.disarm()
                 stopRequested = false
+                let before = (try? Engine.json({ zios_wallet_info(w, $0) }))?["restoreHeight"] as? NSNumber
+                BgLog.add("rescan requested from block \(height) (wallet start was \(before.map { String($0.int64Value) } ?? "?"))")
+                let t0 = Date()
+                liveLock.lock(); live = w; liveLock.unlock()
+                defer { liveLock.lock(); live = nil; liveLock.unlock() }
                 var r = try Engine.json { zios_wallet_rescan(w, height, $0) }
+                let info = try? Engine.json({ zios_wallet_info(w, $0) })
+                func n(_ k: String) -> String { (info?[k] as? NSNumber).map { String($0.int64Value) } ?? "?" }
+                BgLog.add("rescan finished in \(Int(Date().timeIntervalSince(t0))) s · wallet start \(n("restoreHeight")) · wallet block \(n("height"))")
                 try? persist()
                 r["ok"] = true
                 call.resolve(r)
             } catch {
+                BgLog.add("rescan stopped: \(Engine.message(error))")
                 call.reject(Self.msg(error))
             }
         }
+    }
+
+    /// A block height from the page: a JS number (any NSNumber) or a numeric string; 0 otherwise.
+    /// (Android's getLong silently returned 0 for JS numbers, which made every rescan start at 0.)
+    private static func blockArg(_ call: CAPPluginCall, _ key: String) -> UInt64 {
+        let v = call.options[key]
+        var d: Double = 0
+        if let n = v as? NSNumber { d = n.doubleValue }
+        else if let s = v as? String, let x = Double(s.trimmingCharacters(in: .whitespaces)) { d = x }
+        return d.isFinite && d > 0 ? UInt64(min(d, 1e15)) : 0
     }
 
     /// walletQ only.

@@ -646,6 +646,7 @@ textarea{resize:none;line-height:1.65}
     </div>
     <div class="sp3"></div>
     <div style="font-size:11px;color:var(--muted);text-align:center">Aeolus · ZEPH · ZSD · ZRS · ZYS</div>
+    <div id="app-version" style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">Aeolus v1.0</div>
   </div>
 </div>
 
@@ -1254,7 +1255,7 @@ function _buildDebugLog(){
 }
 // Opens the default mail app with the log filled in, to aeoluswallet@protonmail.com (the address
 // is fixed in the Android code). Nothing is sent until you press Send. Falls back to copying.
-var AEOLUS_BUILD = 'swapfix-6 (2026-11-26)';
+var AEOLUS_BUILD = 'rescan-13 (2026-11-26)';
 async function emailDebugLog(){
   var info = _buildDebugLog();
   var bgSection = '';
@@ -3498,7 +3499,7 @@ async function refreshSync(reason){
   _refreshBusy = true;
   try{
     console.warn('[SYNC] refresh (' + reason + ') at block ' + W.scanHeight);
-    if(reason !== 'watchdog' && reason !== 'online' && reason !== 'resume') toast('Reconnecting…', 2000);
+    if(reason !== 'watchdog' && reason !== 'online' && reason !== 'resume' && reason !== 'rescan') toast('Reconnecting…', 2000);
     setNet('sync', 'Reconnecting...'); try{ updatePillText(); }catch(e){}
     _syncGen++; _syncAbort = true;
     clearTimeout(_nextSyncTimer);
@@ -5743,15 +5744,8 @@ function doRescanHeight(){
   var inp = document.getElementById('rescan-height');
   var h = parseInt((inp?inp.value:'')||'') || 0;
   if(!h){ toast('Enter a block height first'); inp && inp.focus(); return; }
-  var start = (W.wallet && W.wallet.restoreHeight) || 0;
-  if(start > 0 && h > start){
-    // Second tap within 10 s confirms (no browser dialogs in this WebView).
-    if(!(_rescanLateArm && _rescanLateArm.h === h && Date.now() - _rescanLateArm.t < 10000)){
-      _rescanLateArm = {h:h, t:Date.now()};
-      toast('Block ' + h.toLocaleString() + ' is after your wallet start (' + start.toLocaleString() + '). Funds received before it won\'t show. Tap again to continue.', 6000);
-      return;
-    }
-  }
+  // Owner request: no pop-up / second tap. The panel's yellow note already explains that funds
+  // received before the chosen block won't show.
   _rescanLateArm = null;
   doRescan(false);
 }
@@ -5760,6 +5754,8 @@ async function doRescan(fromZero){
   const inp = document.getElementById('rescan-height');
   var h = fromZero ? 0 : parseInt((inp?inp.value:'')||'') || 0;
   var label = h > 0 ? 'block ' + h.toLocaleString() : 'block 0';
+  console.log('[RESCAN] requested from block ' + h + ' (typed "' + (inp ? inp.value : '') + '", fromZero=' + !!fromZero
+    + ', wallet start ' + ((W.wallet && W.wallet.restoreHeight) || 0) + ', histFromWallet=' + _histFromWallet() + ', walletOpen=' + !!_walletOpen + ')');
   // Native rescan: keeps the stored wallet (sent-tx keys, subaddresses), works after a fingerprint
   // unlock, and the history is rebuilt from the wallet's records afterwards. Needs the wallet open
   // and history-from-wallet on (the old history can't rebuild itself without the full rebuild).
@@ -5816,25 +5812,31 @@ async function doRescan(fromZero){
     // Next open rebuilds the wallet from the seed at this height
     try{ Android.clearWalletCache(); }catch(e){ console.warn('[RESCAN] clearWalletCache:', e && e.message); }
     W.wallet.restoreHeight = h;
-    console.log('[RESCAN] stored wallet removed, rebuilding from block '+h);
+    console.log('[RESCAN] fallback: stored wallet removed, rebuilding from the seed at block '+h+' (restoreHeight now '+W.wallet.restoreHeight+')');
   }
 
   save();
   document.getElementById('rescan-panel').style.display = 'none';
-  toast('Rescanning from ' + label + '...', 3000);
   navTo('home');
   setTimeout(function(){
     _syncAbort = false;
     window._intentionalRescan = true; // prevent tip-fetch override in openFullWallet
     try{ if(W.scanHeight === 0) localStorage.setItem('zw_full_rescan_pending','1'); }catch(e){} // race-proof for from-block-0 rescans
     startSyncUI();
-    doBlockchainSync().finally(stopSyncUI);
+    doBlockchainSync().finally(function(){
+      stopSyncUI();
+      if(!_locked){ console.log('[RESCAN] rebuild done — automatic refresh'); setTimeout(function(){ refreshSync('rescan'); }, 1500); }
+    });
   }, 300);
 }
-var _rescanBusy = false;
+var _rescanBusy = false, _rescanGen = 0, _rescanRefreshTimer = 0;
 async function _nativeRescan(h, label){
-  if(_rescanBusy) return true;
+  // A new request while one is running RESTARTS it: the native call stops the running scan first
+  // (it used to be ignored silently, so the button looked dead until the first rescan finished).
+  if(_rescanBusy) console.log('[RESCAN] a rescan was already running — restarting from block ' + h);
+  var gen = ++_rescanGen;
   _rescanBusy = true;
+  clearTimeout(_rescanRefreshTimer);
   _syncGen++; _syncAbort = true; _syncFailCount = 0;
   clearTimeout(_nextSyncTimer);
   try{ await pauseSync(); }catch(e){}
@@ -5842,28 +5844,49 @@ async function _nativeRescan(h, label){
   var panel = document.getElementById('rescan-panel'); if(panel) panel.style.display = 'none';
   navTo('home');
   var _nd = document.getElementById('netdot'); if(_nd) _nd.className = 'nd nsync';
-  _netState = 'sync'; _netMsg = 'Rescanning...'; setSyncBlocks(0, 0); updatePillText();
-  toast('Rescanning from ' + label + ' — this can take a few minutes. Keep the app open.', 5000);
-  var ok = false;
+  // The app's own sync position must move back to the chosen block too. Otherwise the pill and the
+  // automatic Refresh carry on from the old tip ("[SYNC] Start from block 916185" after asking 200000).
+  W.scanHeight = h;
+  if(h === 0) window._intentionalRescan = true;   // keep the "new wallet → jump to tip" logic out of it
+  try{ save(); }catch(e){}
+  _netState = 'sync'; _netMsg = 'Rescanning...'; setSyncBlocks(h, 0); updatePillText();
+  console.log('[RESCAN] native rescan starting at block ' + h);
+  var ok = false, refreshed = false;
+  // The native rescan shows no progress while it runs. Owner finding: tapping Refresh right after it
+  // starts gives the right result with progress (the wallet is already reset to the chosen block,
+  // and the normal sync carries on from there). So do that Refresh automatically, once.
+  _rescanRefreshTimer = setTimeout(function(){
+    if(gen !== _rescanGen || _locked) return;
+    refreshed = true;
+    console.log('[RESCAN] automatic refresh');
+    refreshSync('rescan');
+  }, 2500);
   try{
     var r = await _wCmd('rescanWallet', {height: h});
+    if(gen !== _rescanGen){ console.log('[RESCAN] earlier rescan ended (replaced by a newer one)'); return true; }
     if(_locked){ return true; }
     console.log('[RESCAN] native rescan done, wallet height ' + (r && r.height));
     W.scanHeight = (r && r.height) || W.scanHeight;
+    if(W.wallet) W.wallet.restoreHeight = h;   // the wallet now starts at the chosen block (native keeps it too)
     try{ await _rebuildHistoryFromWallet(); }catch(e){ console.warn('[RESCAN] history rebuild:', e && e.message); }
     try{ await _applyNativeBalances(); }catch(e){}
     _fixTsRan = false;
     save(); try{ updBals(); renderRecentTxs(); renderAllTxs(); }catch(e){}
-    toast('Rescan complete', 3000);
+    console.log('[RESCAN] native rescan finished, history ' + ((W.transactions || []).length) + ' rows');
     ok = true;
   }catch(e){
+    if(gen !== _rescanGen) return true;           // the replaced rescan was stopped: not an error
     console.warn('[RESCAN] native rescan error:', e && e.message);
     if(_locked) return true;
   }finally{
+    if(gen !== _rescanGen) return true;           // only the newest rescan resumes syncing
     _rescanBusy = false;
     if(!_locked){
       _syncAbort = false;
-      setTimeout(function(){ startSyncUI(); doBlockchainSync().finally(stopSyncUI); }, 300);
+      // Owner request: when the rescan is done, refresh once automatically (same as tapping Refresh).
+      if(ok && !refreshed){ clearTimeout(_rescanRefreshTimer); refreshed = true; console.log('[RESCAN] done — automatic refresh'); setTimeout(function(){ refreshSync('rescan'); }, 300); }
+      else if(!ok){ clearTimeout(_rescanRefreshTimer); setTimeout(function(){ startSyncUI(); doBlockchainSync().finally(stopSyncUI); }, 300); }
+      // ok && refreshed: the automatic Refresh already started the sync from the chosen block.
     }
   }
   return ok;
