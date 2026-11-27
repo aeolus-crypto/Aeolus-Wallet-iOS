@@ -108,7 +108,7 @@ public class AeolusShellPlugin: CAPPlugin, CAPBridgedPlugin {
           // Background Sync works differently here (iOS wakes the app now and then, there is no always-on
           // service), so the page's Android battery tip is replaced by what is true on iOS.
           var note = document.getElementById('bgsync-note');
-          if (note) note.textContent = 'Checks every minute while Aeolus is minimized. Don't swipe it away: after that, iOS only wakes it now and then. Keep Background App Refresh on.';
+          if (note) note.textContent = 'Checks every minute while Aeolus is minimized. Don\u{2019}t swipe it away: after that, iOS only wakes it now and then. Keep Background App Refresh on.';
         })();
         """
 
