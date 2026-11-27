@@ -82,16 +82,12 @@ public class ZephyrWalletPlugin: CAPPlugin, CAPBridgedPlugin {
         c.httpShouldSetCookies = false
         c.urlCache = nil
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: NoRedirects.shared, delegateQueue: nil)
     }()
 
     override public func load() {
         InstallGuard.run()
-        // The core's OpenSSL verifies https nodes against the shipped Mozilla roots (as zephyr-java
-        // does on Android); iOS has no OpenSSL CA directory of its own.
-        if getenv("SSL_CERT_FILE") == nil, let pem = Bundle.module.path(forResource: "cacert", ofType: "pem") {
-            setenv("SSL_CERT_FILE", pem, 1)
-        }
+        EngineTLS.configure()
         zios_set_log_level(0)
         Self.shared = self
         NotificationCenter.default.addObserver(self, selector: #selector(willTerminate),

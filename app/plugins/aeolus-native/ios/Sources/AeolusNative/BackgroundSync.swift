@@ -270,6 +270,7 @@ public enum AeolusBackground {
 
     /// Must run before the app finishes launching (iOS refuses late registration).
     public static func register() {
+        EngineTLS.configure()   // a wake-up can launch the app without the web view (and its plugins)
         let s = BGTaskScheduler.shared
         _ = s.register(forTaskWithIdentifier: refreshID, using: nil) { task in
             handle(task, budget: refreshBudget)
@@ -669,7 +670,7 @@ public enum AeolusBackground {
         cfg.httpCookieAcceptPolicy = .never
         cfg.httpShouldSetCookies = false
         cfg.urlCache = nil
-        let session = URLSession(configuration: cfg)
+        let session = URLSession(configuration: cfg, delegate: NoRedirects.shared, delegateQueue: nil)
         let box = HeightBox()
         let sem = DispatchSemaphore(value: 0)
         session.dataTask(with: req) { data, _, _ in

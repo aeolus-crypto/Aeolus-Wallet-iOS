@@ -20,3 +20,24 @@ enum NodeAllowlist {
         return u
     }
 }
+
+/// Node HTTP never follows a redirect: a node could otherwise send the request on to a host that
+/// is not on the list (ATS only stops redirects to plain http).
+final class NoRedirects: NSObject, URLSessionTaskDelegate {
+    static let shared = NoRedirects()
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
+enum EngineTLS {
+    /// The core's OpenSSL verifies https nodes against the shipped Mozilla roots (as zephyr-java does
+    /// on Android); iOS has no OpenSSL CA directory of its own. Needed before ANY engine connection,
+    /// including a background wake-up that launches the app without loading the web view's plugins.
+    static func configure() {
+        if getenv("SSL_CERT_FILE") == nil, let pem = Bundle.module.path(forResource: "cacert", ofType: "pem") {
+            setenv("SSL_CERT_FILE", pem, 1)
+        }
+    }
+}
